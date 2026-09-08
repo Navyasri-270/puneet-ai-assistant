@@ -1,11 +1,10 @@
 import { NextResponse } from 'next/server';
-import { getReminders, createReminder, seedInitialDatabase } from '@/lib/taskStore';
+import { getReminders, createReminder } from '@/lib/taskStore';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request) {
   try {
-    await seedInitialDatabase();
     const { searchParams } = new URL(req.url);
     const filter = (searchParams.get('filter') as any) || 'all';
 

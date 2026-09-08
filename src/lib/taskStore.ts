@@ -1,5 +1,4 @@
 import { prisma } from './db';
-import { initialDemoTasks, initialDemoCalendarEvents, initialDemoEmailDrafts, initialDemoMemories } from './demoData';
 
 export interface TaskItem {
   id: string;
@@ -15,11 +14,11 @@ export interface TaskItem {
   updatedAt: string;
 }
 
-// In-memory fallback cache to ensure instant reactivity and baseline persistence across hot reloads
-let memoryTasks: TaskItem[] = [...initialDemoTasks];
-let memoryCalendar = [...initialDemoCalendarEvents];
-let memoryEmails = [...initialDemoEmailDrafts];
-let memoryStore = [...initialDemoMemories];
+// In-memory fallback cache for empty/fallback states without demo data
+let memoryTasks: TaskItem[] = [];
+let memoryCalendar: any[] = [];
+let memoryEmails: any[] = [];
+let memoryStore: any[] = [];
 
 export async function getTasks(): Promise<TaskItem[]> {
   try {
@@ -41,8 +40,6 @@ export async function getTasks(): Promise<TaskItem[]> {
         updatedAt: t.updatedAt.toISOString(),
       }));
     } else {
-      // Seed initial tasks if database is empty
-      await seedInitialDatabase();
       return memoryTasks;
     }
   } catch (err) {
@@ -141,56 +138,7 @@ export async function deleteTask(id: string): Promise<boolean> {
   }
 }
 
-export async function seedInitialDatabase() {
-  try {
-    for (const task of initialDemoTasks) {
-      await prisma.task.upsert({
-        where: { id: task.id },
-        update: {},
-        create: {
-          id: task.id,
-          title: task.title,
-          description: task.description,
-          status: task.status,
-          priority: task.priority,
-          dueDate: task.dueDate,
-          dueTime: task.dueTime,
-          category: task.category,
-          notes: task.notes,
-        }
-      });
-    }
-    for (const draft of initialDemoEmailDrafts) {
-      await prisma.emailDraft.upsert({
-        where: { id: draft.id },
-        update: {},
-        create: {
-          id: draft.id,
-          recipient: draft.recipient,
-          cc: (draft as any).cc || '',
-          bcc: (draft as any).bcc || '',
-          subject: draft.subject,
-          body: draft.body,
-          status: draft.status,
-        }
-      });
-    }
-    for (const mem of initialDemoMemories) {
-      await prisma.memory.upsert({
-        where: { key: mem.key },
-        update: {},
-        create: {
-          id: mem.id,
-          key: mem.key,
-          value: mem.value,
-          category: mem.category,
-        }
-      });
-    }
-  } catch (e) {
-    console.warn("Skipping DB seed, relying on in-memory demo data:", e);
-  }
-}
+
 
 export async function generateBriefingSummary() {
   const tasks = await getTasks();

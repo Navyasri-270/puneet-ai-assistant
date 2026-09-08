@@ -1,5 +1,4 @@
 import { prisma } from './db';
-import { initialDemoCalendarEvents } from './demoData';
 import { getTasks, TaskItem } from './taskStore';
 
 export interface CalendarEventItem {
@@ -30,12 +29,7 @@ export interface CombinedScheduleItem {
 }
 
 // Memory fallback store for high performance and hot-reload safety
-let memoryCalendarEvents: CalendarEventItem[] = [...initialDemoCalendarEvents.map(e => ({
-  ...e,
-  isAllDay: e.isAllDay || false,
-  createdAt: new Date().toISOString(),
-  source: 'local_db' as const
-}))];
+let memoryCalendarEvents: CalendarEventItem[] = [];
 
 /**
  * Format local date cleanly without timezone offsets (YYYY-MM-DD)
@@ -85,7 +79,6 @@ export async function getCalendarEvents(): Promise<CalendarEventItem[]> {
       memoryCalendarEvents = formatted;
       return formatted;
     } else {
-      await seedInitialCalendar();
       return memoryCalendarEvents;
     }
   } catch (err) {
@@ -299,33 +292,7 @@ export async function deleteCalendarEvent(id: string): Promise<boolean> {
   }
 }
 
-/**
- * Seed initial demo events if SQLite database is empty
- */
-async function seedInitialCalendar() {
-  try {
-    for (const evt of initialDemoCalendarEvents) {
-      const startObj = parseISOToLocalDate(evt.startTime);
-      const endObj = parseISOToLocalDate(evt.endTime);
-      await prisma.calendarEvent.upsert({
-        where: { id: evt.id },
-        update: {},
-        create: {
-          id: evt.id,
-          title: evt.title,
-          description: evt.description,
-          location: evt.location,
-          startTime: startObj,
-          endTime: endObj,
-          isAllDay: evt.isAllDay || false,
-          category: evt.category
-        }
-      });
-    }
-  } catch (e) {
-    console.warn("Skipping DB seed for calendar:", e);
-  }
-}
+
 
 function formatDateTimeISO(dateStr: string, timeStr: string): string {
   let [hours, minutes] = [10, 0];

@@ -1,11 +1,10 @@
 import { NextResponse } from 'next/server';
-import { getEmailDrafts, createEmailDraft, seedInitialDatabase } from '@/lib/taskStore';
+import { getEmailDrafts, createEmailDraft } from '@/lib/taskStore';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request) {
   try {
-    await seedInitialDatabase();
     let drafts = await getEmailDrafts();
 
     const { searchParams } = new URL(req.url);

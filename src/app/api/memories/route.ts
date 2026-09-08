@@ -1,11 +1,10 @@
 import { NextResponse } from 'next/server';
-import { getMemories, createMemory, seedInitialDatabase } from '@/lib/taskStore';
+import { getMemories, createMemory } from '@/lib/taskStore';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request) {
   try {
-    await seedInitialDatabase();
     let memories = await getMemories();
 
     const { searchParams } = new URL(req.url);
