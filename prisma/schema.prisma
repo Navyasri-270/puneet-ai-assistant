@@ -1,24 +1,24 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
 datasource db {
   provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
-generator client {
-  provider = "prisma-client-js"
-}
-
 model Task {
-  id          String   @id @default(uuid())
+  id          String     @id @default(uuid())
   title       String
-  description String?  @default("")
-  status      String   @default("To Do") // "To Do", "In Progress", "Completed"
-  priority    String   @default("Medium") // "Low", "Medium", "High", "Urgent"
-  dueDate     String?  // YYYY-MM-DD format
-  dueTime     String?  // HH:MM AM/PM format
-  category    String   @default("General") // e.g., Executive, Clients, Operations, Strategy
-  notes       String?  @default("")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  description String?    @default("")
+  status      String     @default("To Do")
+  priority    String     @default("Medium")
+  dueDate     String?
+  dueTime     String?
+  category    String     @default("General")
+  notes       String?    @default("")
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
   reminders   Reminder[]
 }
 
@@ -26,11 +26,11 @@ model Reminder {
   id           String   @id @default(uuid())
   title        String   @default("Executive Reminder")
   taskId       String?
-  task         Task?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
   reminderTime DateTime
-  channel      String   @default("In-App") // "In-App", "Email"
+  channel      String   @default("In-App")
   triggered    Boolean  @default(false)
   createdAt    DateTime @default(now())
+  task         Task?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
 }
 
 model CalendarEvent {
@@ -48,29 +48,29 @@ model CalendarEvent {
 model EmailDraft {
   id        String   @id @default(uuid())
   recipient String
-  cc        String?  @default("")
-  bcc       String?  @default("")
   subject   String
   body      String
-  status    String   @default("Draft") // "Draft", "Approved", "Cancelled"
+  status    String   @default("Draft")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  bcc       String?  @default("")
+  cc        String?  @default("")
 }
 
 model Memory {
   id        String   @id @default(uuid())
   key       String   @unique
   value     String
-  category  String   @default("Preferences") // Preferences, People, Clients, Communication, Business, Instructions, Other
+  category  String   @default("Preferences")
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 }
 
 model Conversation {
   id         String   @id @default(uuid())
-  role       String   // "user", "assistant"
+  role       String
   content    String
-  actionData String?  // JSON stringified action execution summary
+  actionData String?
   timestamp  DateTime @default(now())
 }
 
@@ -86,4 +86,3 @@ model GoogleConnection {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }
-
