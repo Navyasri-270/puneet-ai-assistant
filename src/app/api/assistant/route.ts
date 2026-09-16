@@ -3,6 +3,8 @@ import { getTasks, createTask, updateTask, deleteTask, createEmailDraft, createM
 import { generateDailyBriefing } from '@/lib/briefingService';
 import { parseNaturalLanguageRequest, AIActionResponse } from '@/lib/aiActionParser';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();

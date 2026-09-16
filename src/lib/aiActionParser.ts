@@ -1,7 +1,7 @@
 import { TaskItem } from './taskStore';
 
 export interface AIActionResponse {
-  intent: 'create_task' | 'update_task' | 'complete_task' | 'delete_task' | 'list_tasks' | 'summarize_tasks' | 'draft_email' | 'create_calendar_event' | 'clarify_priority' | 'save_memory' | 'forget_memory' | 'list_memories' | 'create_reminder' | 'list_reminders' | 'cancel_reminder' | 'clarify' | 'general';
+  intent: 'create_task' | 'update_task' | 'complete_task' | 'delete_task' | 'list_tasks' | 'summarize_tasks' | 'draft_email' | 'create_calendar_event' | 'clarify_priority' | 'save_memory' | 'forget_memory' | 'list_memories' | 'create_reminder' | 'list_reminders' | 'cancel_reminder' | 'update_push_frequency' | 'clarify' | 'general';
   actionSummary: string;
   data?: any;
   clarificationQuestion?: string;
@@ -24,6 +24,22 @@ export function parseNaturalLanguageRequest(prompt: string, existingTasks: TaskI
   const daysUntilFriday = (5 - friday.getDay() + 7) % 7 || 7;
   friday.setDate(friday.getDate() + daysUntilFriday);
   const fridayStr = friday.toISOString().split('T')[0];
+
+  // 0000. PUSH NOTIFICATION FREQUENCY INTENT
+  if (lower.includes('remind me every') || lower.includes('notification frequency') || lower.includes('push notifications every')) {
+    let hours = 3;
+    if (lower.includes('1 hour') || lower.includes('every hour')) hours = 1;
+    else if (lower.includes('3 hours') || lower.includes('every 3 hours')) hours = 3;
+    else if (lower.includes('6 hours') || lower.includes('every 6 hours')) hours = 6;
+    else if (lower.includes('daily') || lower.includes('24 hours')) hours = 24;
+
+    return {
+      intent: 'update_push_frequency',
+      actionSummary: `Updated mobile push notification frequency to every ${hours} hour(s)`,
+      data: { frequencyHours: hours },
+      isFallbackEngine: true,
+    };
+  }
 
   // 000. REMINDER INTENTS
   // A. CREATE REMINDER
@@ -196,7 +212,7 @@ export function parseNaturalLanguageRequest(prompt: string, existingTasks: TaskI
     };
   }
 
-  // 0. CREATE CALENDAR EVENT INTENT
+  // 0. CREATE CALENDAR EVENT INTENT (Outlook / Local Calendar)
   if (lower.startsWith('schedule') || lower.includes('schedule a meeting') || lower.includes('schedule a call') || lower.includes('calendar event')) {
     const timeMatch = prompt.match(/\bat\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\b/i) || prompt.match(/\b(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/i);
 
@@ -256,12 +272,12 @@ export function parseNaturalLanguageRequest(prompt: string, existingTasks: TaskI
         date: eventDate,
         startTime,
         location: "Executive Office / Online Sync",
-        category: "Client Meeting"
+        category: "Client Meeting",
+        isOutlook: lower.includes('outlook') || lower.includes('microsoft'),
       },
       isFallbackEngine: true
     };
   }
-
 
   // 1. DRAFT EMAIL INTENT
   if (lower.startsWith('draft an email') || lower.startsWith('draft email') || lower.startsWith('write an email') || lower.startsWith('write email') || lower.includes('draft an email') || lower.includes('draft email') || lower.includes('write an email')) {
@@ -320,7 +336,6 @@ export function parseNaturalLanguageRequest(prompt: string, existingTasks: TaskI
 
   // 2. COMPLETE TASK INTENT
   if ((lower.includes('complete') && (lower.includes('task') || lower.includes('item') || lower.includes('proposal'))) || (lower.includes('mark') && lower.includes('completed')) || lower.startsWith('complete ') || lower.startsWith('finish ')) {
-    // Search matching tasks
     const matchingTasks = existingTasks.filter(t => 
       t.status !== 'Completed' && (
         lower.includes(t.title.toLowerCase()) || 
@@ -370,7 +385,6 @@ export function parseNaturalLanguageRequest(prompt: string, existingTasks: TaskI
       };
     }
 
-    // Search for single match or default match
     const matching = existingTasks.find(t => 
       lower.includes(t.title.toLowerCase()) || 
       t.title.toLowerCase().split(' ').some(w => w.length > 3 && lower.includes(w))
@@ -409,7 +423,6 @@ export function parseNaturalLanguageRequest(prompt: string, existingTasks: TaskI
   }
 
   // 5. CREATE TASK INTENT (Default natural language extraction)
-  // Extract Time
   let dueTime = "10:00 AM";
   const timeMatch = prompt.match(/\bat\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\b/i) || 
                     prompt.match(/\b(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/i);
@@ -421,7 +434,6 @@ export function parseNaturalLanguageRequest(prompt: string, existingTasks: TaskI
     dueTime = tStr;
   }
 
-  // Extract Date
   let dueDate = todayStr;
   if (/\btomorrow\b/i.test(prompt)) {
     dueDate = tomorrowStr;
@@ -431,7 +443,6 @@ export function parseNaturalLanguageRequest(prompt: string, existingTasks: TaskI
     dueDate = todayStr;
   }
 
-  // Extract Priority - check if explicitly provided in request
   let explicitPriority: string | null = null;
   if (/\b(urgent|asap|critical|immediately)\b/i.test(lower)) {
     explicitPriority = "Urgent";
@@ -443,7 +454,6 @@ export function parseNaturalLanguageRequest(prompt: string, existingTasks: TaskI
     explicitPriority = "Low";
   }
 
-  // Extract Category
   let category = "General";
   if (/\b(dubai|client|leads|lead)\b/i.test(lower)) {
     category = "Clients";
@@ -453,13 +463,10 @@ export function parseNaturalLanguageRequest(prompt: string, existingTasks: TaskI
     category = "Strategy";
   }
 
-  // Clean Task Title
   let taskTitle = prompt;
 
-  // 1. Remove command prefixes
   taskTitle = taskTitle.replace(/^(remind me|create task|create a task|add task|add a task|schedule task|schedule a task)\b\s*/i, '');
 
-  // 2. Remove date phrases using word boundaries
   taskTitle = taskTitle
     .replace(/\bby tomorrow\b/gi, '')
     .replace(/\bby friday\b/gi, '')
@@ -469,12 +476,10 @@ export function parseNaturalLanguageRequest(prompt: string, existingTasks: TaskI
     .replace(/\btonight\b/gi, '')
     .replace(/\bnext week\b/gi, '');
 
-  // 3. Remove time phrases
   taskTitle = taskTitle
     .replace(/\bat\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/gi, '')
     .replace(/\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/gi, '');
 
-  // 4. Remove explicitly stated priority phrases
   taskTitle = taskTitle
     .replace(/\bwith high priority\b/gi, '')
     .replace(/\bhigh priority\b/gi, '')
@@ -486,13 +491,11 @@ export function parseNaturalLanguageRequest(prompt: string, existingTasks: TaskI
     .replace(/\basap\b/gi, '')
     .replace(/\bimportant\b/gi, '');
 
-  // 5. Clean leading prepositions ("to ", "for ", "at ") and excess spaces
   taskTitle = taskTitle
     .replace(/^\s*(to|for|at|on)\s+/i, '')
     .replace(/\s+/g, ' ')
     .trim();
 
-  // 6. Capitalize title cleanly
   if (taskTitle.length > 0) {
     taskTitle = taskTitle.charAt(0).toUpperCase() + taskTitle.slice(1);
   } else {
@@ -507,7 +510,6 @@ export function parseNaturalLanguageRequest(prompt: string, existingTasks: TaskI
     status: "To Do"
   };
 
-  // If priority was NOT explicitly provided, ask for priority before saving task!
   if (!explicitPriority) {
     const dateLabel = dueDate === todayStr ? 'Today' : 'Tomorrow';
     return {
@@ -537,5 +539,3 @@ export function parseNaturalLanguageRequest(prompt: string, existingTasks: TaskI
     isFallbackEngine: true
   };
 }
-
-

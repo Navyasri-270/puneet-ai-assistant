@@ -29,11 +29,14 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# prisma local dev db
+# prisma local dev db & backup files
 /prisma/*.db
 /prisma/*.db-journal
+/prisma/*.db.backup
+/prisma/seed_data.json
 *.db
 *.db-journal
+*.db.backup
 
-# scratch test scripts
+# scratch test scripts & temporary logs
 /scratch/

@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import AppLayout from '@/components/AppLayout';
 import Link from 'next/link';
 import { 
   Sparkles, 
@@ -20,6 +19,8 @@ import {
   Mail,
   Bell
 } from 'lucide-react';
+import { getLocalDateStr } from '@/lib/calendarService';
+import { useMounted, formatDate, formatTime } from '@/lib/dateUtils';
 
 interface Task {
   id: string;
@@ -34,6 +35,7 @@ interface Task {
 }
 
 export default function Dashboard() {
+  const mounted = useMounted();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [briefing, setBriefing] = useState<string>("");
@@ -49,44 +51,45 @@ export default function Dashboard() {
   const [isRefreshingBriefing, setIsRefreshingBriefing] = useState(false);
 
   const fetchDashboardData = async () => {
+    setLoading(true);
+    const todayStrLocal = getLocalDateStr();
+
     try {
-      setLoading(true);
-      const res = await fetch('/api/tasks');
-      const data = await res.json();
-      if (data.tasks) {
-        setTasks(data.tasks);
-      }
+      await Promise.allSettled([
+        fetch('/api/tasks')
+          .then(res => res.json())
+          .then(data => { if (data.tasks) setTasks(data.tasks); }),
 
-      // Fetch today's schedule from Calendar API
-      const todayStrLocal = getLocalDateStr();
-      const calRes = await fetch(`/api/calendar?unified=true&date=${todayStrLocal}`);
-      const calData = await calRes.json();
-      if (calData.schedule) {
-        setScheduleEvents(calData.schedule);
-      }
+        fetch(`/api/calendar?unified=true&date=${todayStrLocal}`)
+          .then(res => res.json())
+          .then(data => { if (data.schedule) setScheduleEvents(data.schedule); }),
 
-      // Fetch email drafts overview
-      const emailRes = await fetch('/api/emails');
-      const emailData = await emailRes.json();
-      if (emailData.drafts) {
-        setEmailDraftsCount(emailData.drafts.length);
-        setMostRecentDraft(emailData.drafts[0] || null);
-      }
+        fetch('/api/emails')
+          .then(res => res.json())
+          .then(data => {
+            if (data.drafts) {
+              setEmailDraftsCount(data.drafts.length);
+              setMostRecentDraft(data.drafts[0] || null);
+            }
+          }),
 
-      // Fetch upcoming reminders
-      const remRes = await fetch('/api/reminders?filter=all');
-      const remData = await remRes.json();
-      if (remData.reminders) {
-        setDashboardReminders(remData.reminders.filter((r: any) => !r.triggered));
-      }
+        fetch('/api/reminders?filter=all')
+          .then(res => res.json())
+          .then(data => {
+            if (data.reminders) {
+              setDashboardReminders(data.reminders.filter((r: any) => !r.triggered));
+            }
+          }),
 
-      // Fetch daily briefing
-      const briefingRes = await fetch('/api/briefing');
-      const briefingResData = await briefingRes.json();
-      if (briefingResData.briefing) {
-        setBriefingData(briefingResData.briefing);
-        setBriefing(briefingResData.briefing.summaryText);
-      }
+        fetch('/api/briefing')
+          .then(res => res.json())
+          .then(data => {
+            if (data.briefing) {
+              setBriefingData(data.briefing);
+              setBriefing(data.briefing.summaryText);
+            }
+          })
+      ]);
     } catch (err) {
       console.error("Dashboard fetch error:", err);
     } finally {
@@ -224,7 +227,7 @@ export default function Dashboard() {
   };
 
   return (
-    <AppLayout>
+    <>
       {/* Executive Welcome & AI Command Banner */}
       <div className="space-y-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-xl border border-slate-200 shadow-executive">
@@ -697,7 +700,7 @@ export default function Dashboard() {
                         <div className="min-w-0">
                           <p className="font-semibold text-slate-900 truncate">• {rem.title}</p>
                           <span className="text-[10px] text-slate-500 font-medium">
-                            {rDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} at {rDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                            {mounted ? `${formatDate(rDate, { month: 'short', day: 'numeric' })} at ${formatTime(rDate)}` : '--:--'}
                           </span>
                         </div>
                         <span className="text-[9px] font-bold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded shrink-0">
@@ -716,6 +719,6 @@ export default function Dashboard() {
 
         </div>
       </div>
-    </AppLayout>
+    </>
   );
 }

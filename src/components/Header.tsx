@@ -4,18 +4,23 @@ import React from 'react';
 import Link from 'next/link';
 import { Menu, Sparkles, Bell, Calendar as CalendarIcon, ShieldCheck } from 'lucide-react';
 
+import { useMounted, formatDate } from '@/lib/dateUtils';
+
 interface HeaderProps {
   onToggleSidebar?: () => void;
   pendingCount?: number;
 }
 
 export default function Header({ onToggleSidebar, pendingCount = 0 }: HeaderProps) {
-  const currentDateFormatted = new Date().toLocaleDateString('en-US', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric'
-  });
+  const mounted = useMounted();
+  const currentDateFormatted = mounted
+    ? formatDate(new Date(), {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      })
+    : '';
 
   return (
     <header className="h-16 bg-white border-b border-slate-200 px-4 md:px-8 flex items-center justify-between sticky top-0 z-20 shadow-executive">

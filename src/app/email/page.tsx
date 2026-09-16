@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import AppLayout from '@/components/AppLayout';
+import { useMounted, formatDate } from '@/lib/dateUtils';
 import { 
   Mail, 
   Plus, 
@@ -32,6 +32,7 @@ export interface EmailDraft {
 }
 
 export default function EmailPage() {
+  const mounted = useMounted();
   const [drafts, setDrafts] = useState<EmailDraft[]>([]);
   const [activeDraft, setActiveDraft] = useState<EmailDraft | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -226,7 +227,7 @@ export default function EmailPage() {
   });
 
   return (
-    <AppLayout>
+    <>
       <div className="space-y-6">
         
         {/* Page Header */}
@@ -365,7 +366,7 @@ export default function EmailPage() {
                       <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-[10px] text-slate-400">
                         <span className="flex items-center gap-1">
                           <Clock className="w-3 h-3 text-slate-400" />
-                          {new Date(d.updatedAt || d.createdAt).toLocaleDateString()}
+                          {mounted ? formatDate(new Date(d.updatedAt || d.createdAt)) : '--'}
                         </span>
                         <button
                           onClick={(e) => { e.stopPropagation(); handleDeleteDraft(d.id); }}
@@ -676,6 +677,6 @@ export default function EmailPage() {
         )}
 
       </div>
-    </AppLayout>
+    </>
   );
 }

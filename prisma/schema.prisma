@@ -86,3 +86,29 @@ model GoogleConnection {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }
+
+model MicrosoftConnection {
+  id           String   @id @default("primary")
+  email        String?
+  accessToken  String
+  refreshToken String?
+  tokenType    String?  @default("Bearer")
+  expiryDate   String?
+  scope        String?
+  isConnected  Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model PushSubscription {
+  id             String    @id @default(uuid())
+  endpoint       String    @unique
+  p256dh         String
+  auth           String
+  enabled        Boolean   @default(true)
+  frequencyHours Int       @default(3)
+  lastNotifiedAt DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+

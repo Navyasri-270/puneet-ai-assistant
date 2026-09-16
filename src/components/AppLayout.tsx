@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Sidebar from './Sidebar';
 import Header from './Header';
 import { Bell, X, Clock, CheckCircle } from 'lucide-react';
+import { formatTime } from '@/lib/dateUtils';
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -61,7 +62,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
       {/* Floating In-App Toast Banners for Due Reminders */}
       <div className="fixed top-5 right-5 z-50 flex flex-col gap-3 max-w-md w-full px-4 pointer-events-none">
         {activeToasts.map(toast => {
-          const formattedTime = new Date(toast.reminderTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+          const formattedTime = formatTime(toast.reminderTime);
           return (
             <div 
               key={toast.id}

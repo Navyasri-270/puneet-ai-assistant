@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import PwaRegister from '@/components/PwaRegister';
+import AppLayout from '@/components/AppLayout';
 
 export const metadata: Metadata = {
   title: "Puneet AI Assistant — Executive Command Center",
@@ -40,7 +41,9 @@ export default function RootLayout({
       </head>
       <body className="bg-slate-50 text-slate-900 font-sans antialiased">
         <PwaRegister />
-        {children}
+        <AppLayout>
+          {children}
+        </AppLayout>
       </body>
     </html>
   );

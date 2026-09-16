@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import AppLayout from '@/components/AppLayout';
 import { 
   Calendar as CalendarIcon, 
   Clock, 
@@ -20,15 +19,22 @@ import {
   Info
 } from 'lucide-react';
 import { CombinedScheduleItem, CalendarEventItem, getLocalDateStr } from '@/lib/calendarService';
+import { useMounted, formatDate } from '@/lib/dateUtils';
 
 type CalendarViewMode = 'day' | 'week' | 'month' | 'year' | 'agenda';
 
 export default function CalendarPage() {
+  const mounted = useMounted();
   const [view, setView] = useState<CalendarViewMode>('agenda');
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   const [schedule, setSchedule] = useState<CombinedScheduleItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // External calendar connection states
+  const [isGoogleConnected, setIsGoogleConnected] = useState(false);
+  const [isOutlookConnected, setIsOutlookConnected] = useState(false);
+  const [outlookDiagnostics, setOutlookDiagnostics] = useState<any>(null);
 
   // Modals state
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -56,6 +62,15 @@ export default function CalendarPage() {
       const data = await res.json();
       if (data.schedule) {
         setSchedule(data.schedule);
+      }
+      if (typeof data.isGoogleConnected === 'boolean') {
+        setIsGoogleConnected(data.isGoogleConnected);
+      }
+      if (typeof data.isOutlookConnected === 'boolean') {
+        setIsOutlookConnected(data.isOutlookConnected);
+      }
+      if (data.outlookDiagnostics) {
+        setOutlookDiagnostics(data.outlookDiagnostics);
       }
     } catch (err: any) {
       console.error("Calendar fetch error:", err);
@@ -174,23 +189,24 @@ export default function CalendarPage() {
 
   // Label for Date Title
   const getHeaderDateLabel = () => {
+    if (!mounted) return '--';
     if (view === 'day') {
-      return currentDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+      return formatDate(currentDate, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
     }
     if (view === 'week') {
       const startOfWeek = new Date(currentDate);
       startOfWeek.setDate(currentDate.getDate() - ((currentDate.getDay() + 6) % 7)); // Monday start
       const endOfWeek = new Date(startOfWeek);
       endOfWeek.setDate(startOfWeek.getDate() + 6);
-      return `${startOfWeek.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${endOfWeek.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+      return `${formatDate(startOfWeek, { month: 'short', day: 'numeric' })} – ${formatDate(endOfWeek, { month: 'short', day: 'numeric', year: 'numeric' })}`;
     }
     if (view === 'month') {
-      return currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+      return formatDate(currentDate, { month: 'long', year: 'numeric' });
     }
     if (view === 'year') {
       return currentDate.getFullYear().toString();
     }
-    return `Schedule Overview (${currentDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })})`;
+    return `Schedule Overview (${formatDate(currentDate, { month: 'short', year: 'numeric' })})`;
   };
 
   // --- MONTH VIEW DATA GENERATION ---
@@ -254,7 +270,7 @@ export default function CalendarPage() {
       weekDays.push({
         dateObj: d,
         dateStr: getLocalDateStr(d),
-        dayName: d.toLocaleDateString('en-US', { weekday: 'short' }),
+        dayName: formatDate(d, { weekday: 'short' }),
         dayNum: d.getDate()
       });
     }
@@ -268,8 +284,6 @@ export default function CalendarPage() {
     setView('day');
   };
 
-  const [isGoogleConnected, setIsGoogleConnected] = useState(false);
-
   useEffect(() => {
     fetch('/api/auth/google/status')
       .then(res => res.json())
@@ -280,7 +294,7 @@ export default function CalendarPage() {
   }, []);
 
   return (
-    <AppLayout>
+    <>
       <div className="space-y-6">
         
         {/* Header Title & Controls */}
@@ -354,12 +368,33 @@ export default function CalendarPage() {
             </span>
           </div>
 
-          <div className="flex items-center gap-2 text-xs text-slate-500 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
-            <ShieldCheck className={`w-4 h-4 ${isGoogleConnected ? 'text-emerald-600' : 'text-slate-400'} shrink-0`} />
-            <span>{isGoogleConnected ? 'Google Calendar Connected' : 'Google Calendar Not Connected (Local DB Active)'}</span>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+            <div className="flex items-center gap-1.5 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
+              <ShieldCheck className={`w-4 h-4 ${isOutlookConnected ? 'text-blue-600' : 'text-slate-400'} shrink-0`} />
+              <span>{isOutlookConnected ? 'Outlook 365 Connected' : 'Outlook 365 Disconnected'}</span>
+            </div>
+            <div className="flex items-center gap-1.5 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
+              <ShieldCheck className={`w-4 h-4 ${isGoogleConnected ? 'text-emerald-600' : 'text-slate-400'} shrink-0`} />
+              <span>{isGoogleConnected ? 'Google Calendar Connected' : 'Google Calendar Disconnected'}</span>
+            </div>
           </div>
 
         </div>
+
+        {/* Outlook Empty State / Diagnostic Notice */}
+        {isOutlookConnected && (!outlookDiagnostics || outlookDiagnostics.eventsCount === 0) && (
+          <div className="bg-blue-50/70 border border-blue-200 text-blue-900 p-3.5 rounded-xl text-xs font-medium flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-sm">
+            <div className="flex items-center gap-2">
+              <Info className="w-4 h-4 text-blue-600 shrink-0" />
+              <span className="font-semibold text-blue-950">No Outlook events found in this date range.</span>
+            </div>
+            {outlookDiagnostics && (
+              <span className="text-[10px] text-blue-800 bg-blue-100 px-2.5 py-1 rounded border border-blue-200 shrink-0 font-mono">
+                Graph /me/calendarView · HTTP {outlookDiagnostics.httpStatus} · {outlookDiagnostics.eventsCount} events
+              </span>
+            )}
+          </div>
+        )}
 
 
         {/* Main Schedule Display depending on View Mode */}
@@ -487,7 +522,7 @@ export default function CalendarPage() {
               <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-executive space-y-4">
                 <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                   <h2 className="text-base font-bold text-slate-900">
-                    Schedule for {currentDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+                    Schedule for {mounted ? formatDate(currentDate, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) : '--'}
                   </h2>
                   <span className="text-xs text-slate-500 font-medium">
                     {schedule.filter(item => item.date === currentDateStr).length} items scheduled
@@ -506,13 +541,24 @@ export default function CalendarPage() {
                         key={item.id}
                         className={`
                           p-4 rounded-xl border flex items-start justify-between gap-4 shadow-sm
-                          ${item.type === 'event' ? 'bg-white border-blue-200 border-l-4 border-l-blue-600' : 'bg-amber-50/40 border-amber-200 border-l-4 border-l-amber-500'}
+                          ${item.type === 'event' 
+                            ? 'bg-white border-blue-200 border-l-4 border-l-blue-600' 
+                            : item.type === 'reminder'
+                              ? 'bg-indigo-50/50 border-indigo-200 border-l-4 border-l-indigo-600'
+                              : 'bg-amber-50/40 border-amber-200 border-l-4 border-l-amber-500'
+                          }
                         `}
                       >
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${item.type === 'event' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'}`}>
-                              {item.type === 'event' ? 'Calendar Event' : 'Task Deadline'}
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${
+                              item.type === 'event' 
+                                ? 'bg-blue-100 text-blue-800' 
+                                : item.type === 'reminder'
+                                  ? 'bg-indigo-100 text-indigo-800'
+                                  : 'bg-amber-100 text-amber-800'
+                            }`}>
+                              {item.type === 'event' ? 'Calendar Event' : item.type === 'reminder' ? 'Executive Reminder' : 'Task Deadline'}
                             </span>
                             <span className="text-[11px] font-semibold text-slate-700">{item.time} {item.endTime ? `- ${item.endTime}` : ''}</span>
                           </div>
@@ -563,7 +609,7 @@ export default function CalendarPage() {
               <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
                 {Array.from({ length: 12 }).map((_, mIdx) => {
                   const monthDate = new Date(currentDate.getFullYear(), mIdx, 1);
-                  const monthName = monthDate.toLocaleDateString('en-US', { month: 'long' });
+                  const monthName = formatDate(monthDate, { month: 'long' });
                   
                   // Filter schedule items in this month
                   const monthPrefix = `${currentDate.getFullYear()}-${String(mIdx + 1).padStart(2, '0')}`;
@@ -619,7 +665,12 @@ export default function CalendarPage() {
                       key={item.id}
                       className={`
                         p-5 rounded-xl border transition-all shadow-executive flex flex-col sm:flex-row sm:items-center justify-between gap-4
-                        ${item.type === 'event' ? 'bg-white border-blue-200 border-l-4 border-l-blue-600' : 'bg-amber-50/40 border-amber-200 border-l-4 border-l-amber-500'}
+                        ${item.type === 'event' 
+                          ? 'bg-white border-blue-200 border-l-4 border-l-blue-600' 
+                          : item.type === 'reminder'
+                            ? 'bg-indigo-50/50 border-indigo-200 border-l-4 border-l-indigo-600'
+                            : 'bg-amber-50/40 border-amber-200 border-l-4 border-l-amber-500'
+                        }
                       `}
                     >
                       <div className="space-y-1.5 flex-1 min-w-0">
@@ -627,6 +678,10 @@ export default function CalendarPage() {
                           {item.type === 'event' ? (
                             <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200 flex items-center gap-1">
                               <CalendarIcon className="w-3 h-3" /> Calendar Event
+                            </span>
+                          ) : item.type === 'reminder' ? (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 border border-indigo-200 flex items-center gap-1">
+                              <Clock className="w-3 h-3 text-indigo-600" /> Executive Reminder
                             </span>
                           ) : (
                             <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200 flex items-center gap-1">
@@ -835,6 +890,6 @@ export default function CalendarPage() {
         )}
 
       </div>
-    </AppLayout>
+    </>
   );
 }

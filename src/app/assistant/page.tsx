@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import AppLayout from '@/components/AppLayout';
+import { formatTime } from '@/lib/dateUtils';
 import { 
   Sparkles, 
   Send, 
@@ -44,9 +44,13 @@ export default function AssistantPage() {
       id: 'init-1',
       sender: 'assistant',
       text: "Good morning, Puneet. I am your executive assistant. Tell me what you need to get done, and I will organize, update, or summarize your priorities.",
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      timestamp: ""
     }
   ]);
+
+  useEffect(() => {
+    setMessages(prev => prev.map(m => m.id === 'init-1' && !m.timestamp ? { ...m, timestamp: formatTime(new Date()) } : m));
+  }, []);
 
   const [activePendingTask, setActivePendingTask] = useState<any | null>(null);
 
@@ -71,7 +75,7 @@ export default function AssistantPage() {
         id: userMsgId,
         sender: 'user',
         text: promptToSubmit,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        timestamp: formatTime(new Date())
       }
     ];
 
@@ -119,7 +123,7 @@ export default function AssistantPage() {
         emailDraft: data.intent === 'draft_email' ? data.data : undefined,
         pendingTaskData: data.data?.pendingTask,
         isFallbackEngine: data.isFallbackEngine,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        timestamp: formatTime(new Date())
       };
 
       setMessages(prev => [...prev, assistantMsg]);
@@ -130,7 +134,7 @@ export default function AssistantPage() {
           id: `err-${Date.now()}`,
           sender: 'assistant',
           text: "I encountered a communication issue. Please check your network and try again.",
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          timestamp: formatTime(new Date())
         }
       ]);
     } finally {
@@ -153,7 +157,7 @@ export default function AssistantPage() {
   };
 
   return (
-    <AppLayout>
+    <>
       <div className="max-w-4xl mx-auto space-y-6">
         
         {/* Header Title */}
@@ -328,6 +332,6 @@ export default function AssistantPage() {
         </div>
 
       </div>
-    </AppLayout>
+    </>
   );
 }

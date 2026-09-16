@@ -1,5 +1,5 @@
 import { prisma } from './db';
-import { getTasks, TaskItem } from './taskStore';
+import { getTasks, getReminders, TaskItem } from './taskStore';
 
 export interface CalendarEventItem {
   id: string;
@@ -11,13 +11,13 @@ export interface CalendarEventItem {
   isAllDay: boolean;
   category: string;
   createdAt: string;
-  source?: 'local_db' | 'google_calendar';
+  source?: 'local_db' | 'google_calendar' | 'outlook';
 }
 
 export interface CombinedScheduleItem {
   id: string;
   title: string;
-  type: 'event' | 'task_deadline';
+  type: 'event' | 'task_deadline' | 'reminder';
   date: string; // YYYY-MM-DD
   time: string; // HH:MM AM/PM
   endTime?: string;
@@ -129,8 +129,8 @@ export async function getUnifiedSchedule(targetDate?: string, externalEvents?: C
     });
   });
 
-  // Add Incomplete Task Deadlines
-  tasks.filter(t => t.status !== 'Completed' && t.dueDate).forEach(t => {
+  // Add Task Deadlines
+  tasks.filter(t => t.dueDate).forEach(t => {
     combined.push({
       id: `task-deadline-${t.id}`,
       title: t.title,
@@ -143,6 +143,36 @@ export async function getUnifiedSchedule(targetDate?: string, externalEvents?: C
       status: t.status
     });
   });
+
+  // Add Reminders
+  try {
+    const reminders = await getReminders('all');
+    reminders.forEach(r => {
+      const rDateObj = new Date(r.reminderTime);
+      const year = rDateObj.getFullYear();
+      const month = String(rDateObj.getMonth() + 1).padStart(2, '0');
+      const day = String(rDateObj.getDate()).padStart(2, '0');
+      const dateStr = `${year}-${month}-${day}`;
+      const hours = rDateObj.getHours();
+      const mins = String(rDateObj.getMinutes()).padStart(2, '0');
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      const fmtH = hours % 12 || 12;
+      const timeStr = `${String(fmtH).padStart(2, '0')}:${mins} ${ampm}`;
+
+      combined.push({
+        id: `reminder-${r.id}`,
+        title: r.title,
+        type: 'reminder',
+        date: dateStr,
+        time: timeStr,
+        description: r.task ? `Linked Task: ${r.task.title}` : undefined,
+        category: 'Reminder',
+        status: r.triggered ? 'Triggered' : 'Scheduled'
+      });
+    });
+  } catch (e) {
+    console.warn("Reminders schedule fetch warning:", e);
+  }
 
   // Sort by date then by time
   combined.sort((a, b) => {

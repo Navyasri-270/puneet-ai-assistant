@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import AppLayout from '@/components/AppLayout';
 import { 
   CheckSquare, 
   Plus, 
@@ -18,6 +17,7 @@ import {
   ChevronDown,
   Bell
 } from 'lucide-react';
+import { useMounted, formatDate, formatTime } from '@/lib/dateUtils';
 
 interface Task {
   id: string;
@@ -43,6 +43,7 @@ interface ReminderItem {
 }
 
 export default function TasksPage() {
+  const mounted = useMounted();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [reminders, setReminders] = useState<ReminderItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -109,8 +110,7 @@ export default function TasksPage() {
   };
 
   useEffect(() => {
-    fetchTasks();
-    fetchReminders();
+    Promise.allSettled([fetchTasks(), fetchReminders()]);
   }, [reminderFilter]);
 
   const handleOpenReminderModal = (rem?: ReminderItem) => {
@@ -118,7 +118,7 @@ export default function TasksPage() {
       setEditingReminder(rem);
       const dt = new Date(rem.reminderTime);
       const dateStr = dt.toISOString().split('T')[0];
-      const timeStr = dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+      const timeStr = formatTime(dt);
       setReminderForm({
         title: rem.title,
         reminderDate: dateStr,
@@ -171,7 +171,9 @@ export default function TasksPage() {
           })
         });
         const data = await res.json();
-        if (data.reminder) {
+        if (data.reminder || data.success) {
+          setMainView('reminders');
+          setReminderFilter('all');
           fetchReminders();
         }
       } else {
@@ -186,7 +188,9 @@ export default function TasksPage() {
           })
         });
         const data = await res.json();
-        if (data.reminder) {
+        if (data.reminder || data.success) {
+          setMainView('reminders');
+          setReminderFilter('all');
           fetchReminders();
         }
       }
@@ -323,7 +327,7 @@ export default function TasksPage() {
   };
 
   return (
-    <AppLayout>
+    <>
       <div className="space-y-6">
         
         {/* Page Header & View Switcher */}
@@ -347,7 +351,7 @@ export default function TasksPage() {
                 }`}
               >
                 <Bell className="w-5 h-5 text-indigo-600" />
-                Reminders ({reminders.filter(r => !r.triggered).length})
+                Reminders ({reminders.length})
               </button>
             </div>
             <p className="text-xs text-slate-500 ml-3">
@@ -608,7 +612,7 @@ export default function TasksPage() {
                         <div className="flex items-center gap-2 text-xs text-slate-500">
                           <Clock className="w-3.5 h-3.5 text-indigo-500" />
                           <span className="font-medium text-slate-700">
-                            {remDateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} at {remDateObj.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                            {mounted ? `${formatDate(remDateObj, { weekday: 'short', month: 'short', day: 'numeric' })} at ${formatTime(remDateObj)}` : '--:--'}
                           </span>
                         </div>
 
@@ -858,6 +862,6 @@ export default function TasksPage() {
         )}
 
       </div>
-    </AppLayout>
+    </>
   );
 }

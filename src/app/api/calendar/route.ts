@@ -7,7 +7,13 @@ import {
   deleteCalendarEvent,
   CalendarEventItem
 } from '@/lib/calendarService';
-import { getGoogleConnectionStatus, getAuthenticatedCalendarClient } from '@/lib/googleAuth';
+import { getGoogleConnectionStatus, getAuthenticatedCalendarClient, disconnectGoogleAccount } from '@/lib/googleAuth';
+import { fetchOutlookEvents } from '@/lib/outlookService';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request) {
   try {
@@ -15,14 +21,16 @@ export async function GET(req: Request) {
     const date = searchParams.get('date');
     const unified = searchParams.get('unified');
 
-    // Check if Google Workspace Calendar is connected
-    let googleEvents: CalendarEventItem[] | null = null;
-    const googleStatus = await getGoogleConnectionStatus();
+    let allExternalEvents: CalendarEventItem[] = [];
+
+    // 1. Google Workspace Calendar
+    let googleStatus = await getGoogleConnectionStatus();
 
     if (googleStatus.isConnected) {
       try {
         const calendar = await getAuthenticatedCalendarClient();
-        const response = await calendar.events.list({
+        
+        const listPromise = calendar.events.list({
           calendarId: 'primary',
           timeMin: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
           maxResults: 100,
@@ -30,9 +38,15 @@ export async function GET(req: Request) {
           orderBy: 'startTime'
         });
 
-        const items = response.data.items || [];
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error("Google Calendar fetch timeout")), 2500)
+        );
+
+        const response: any = await Promise.race([listPromise, timeoutPromise]);
+
+        const items = response.data?.items || [];
         if (items.length > 0) {
-          googleEvents = items.map(evt => {
+          const gEvents: CalendarEventItem[] = items.map((evt: any) => {
             const startISO = evt.start?.dateTime || (evt.start?.date ? `${evt.start.date}T00:00:00` : new Date().toISOString());
             const endISO = evt.end?.dateTime || (evt.end?.date ? `${evt.end.date}T23:59:59` : startISO);
 
@@ -49,19 +63,88 @@ export async function GET(req: Request) {
               source: 'google_calendar' as const
             };
           });
+          allExternalEvents.push(...gEvents);
         }
-      } catch (gErr) {
-        console.warn("Google Calendar API fetch warning, falling back to local DB:", gErr);
+      } catch (gErr: any) {
+        console.warn("Google Calendar API fetch warning, falling back:", gErr?.message || gErr);
+        const status = gErr?.status || gErr?.code || gErr?.response?.status;
+        const msg = String(gErr?.message || '').toLowerCase();
+        const isAuthOrScopeError = 
+          status === 403 || 
+          status === 401 || 
+          msg.includes('403') || 
+          msg.includes('insufficient') || 
+          msg.includes('scope') || 
+          msg.includes('invalid_grant') || 
+          msg.includes('unauthorized') || 
+          msg.includes('invalid_token');
+
+        if (isAuthOrScopeError) {
+          try {
+            await disconnectGoogleAccount();
+            googleStatus.isConnected = false;
+          } catch (e) {}
+        }
       }
     }
 
-    if (unified === 'true') {
-      const schedule = await getUnifiedSchedule(date || undefined, googleEvents || undefined);
-      return NextResponse.json({ schedule, isGoogleConnected: googleStatus.isConnected });
+    // 2. Microsoft Outlook Calendar
+    let isOutlookConnected = false;
+    let outlookError: string | undefined = undefined;
+    let outlookDiagnostics: any = null;
+
+    try {
+      const msConn = await prisma.microsoftConnection.findUnique({ where: { id: 'primary' } });
+      isOutlookConnected = !!(msConn && msConn.isConnected);
+      if (isOutlookConnected) {
+        const outlookRes = await fetchOutlookEvents(date || undefined, date || undefined);
+        outlookDiagnostics = outlookRes.diagnostics || null;
+        if (outlookRes.error) {
+          outlookError = outlookRes.error;
+          console.warn("[CalendarRoute] Outlook calendar fetch warning:", outlookRes.error);
+        }
+        if (outlookRes.events && outlookRes.events.length > 0) {
+          const mappedOutlook: CalendarEventItem[] = outlookRes.events.map(evt => ({
+            id: evt.id,
+            title: evt.title,
+            description: evt.description,
+            location: evt.location,
+            startTime: evt.startTime.includes('T') ? evt.startTime.substring(0, 19) : `${evt.startTime}T09:00:00`,
+            endTime: evt.endTime.includes('T') ? evt.endTime.substring(0, 19) : `${evt.endTime}T10:00:00`,
+            isAllDay: evt.isAllDay,
+            category: 'Outlook Meeting',
+            createdAt: new Date().toISOString(),
+            source: 'outlook' as const
+          }));
+          allExternalEvents.push(...mappedOutlook);
+        }
+      }
+    } catch (msErr: any) {
+      console.warn("Outlook Calendar fetch error:", msErr?.message || msErr);
     }
 
-    const events = googleEvents || await getCalendarEvents();
-    return NextResponse.json({ events, isGoogleConnected: googleStatus.isConnected });
+    // Combine with local DB events
+    const localDbEvents = await getCalendarEvents();
+    const mergedEvents = [...localDbEvents, ...allExternalEvents];
+
+    if (unified === 'true') {
+      const schedule = await getUnifiedSchedule(date || undefined, mergedEvents);
+      return NextResponse.json({ 
+        schedule, 
+        isGoogleConnected: googleStatus.isConnected,
+        isOutlookConnected,
+        outlookError,
+        outlookDiagnostics
+      });
+    }
+
+    return NextResponse.json({ 
+      events: mergedEvents, 
+      isGoogleConnected: googleStatus.isConnected,
+      isOutlookConnected,
+      outlookError,
+      outlookDiagnostics
+    });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getTasks, createTask, updateTask, deleteTask } from '@/lib/taskStore';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   try {
     const tasks = await getTasks();

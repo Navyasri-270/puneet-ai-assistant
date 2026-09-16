@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import AppLayout from '@/components/AppLayout';
 import { 
   Settings as SettingsIcon, 
   Brain, 
@@ -13,12 +12,14 @@ import {
   Edit3, 
   Save, 
   X, 
-  Check, 
   Cpu,
   Calendar as CalendarIcon,
   Sparkles,
-  AlertCircle
+  Bell,
+  Mail
 } from 'lucide-react';
+import PushRegister from '@/components/PushRegister';
+import { useMounted, formatDate } from '@/lib/dateUtils';
 
 export interface ExecutiveMemory {
   id: string;
@@ -30,6 +31,7 @@ export interface ExecutiveMemory {
 }
 
 export default function SettingsPage() {
+  const mounted = useMounted();
   const [memories, setMemories] = useState<ExecutiveMemory[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
@@ -57,6 +59,10 @@ export default function SettingsPage() {
   });
   const [isConnecting, setIsConnecting] = useState(false);
 
+  // Outlook Status state
+  const [outlookStatus, setOutlookStatus] = useState<{ isConnected: boolean; email?: string }>({ isConnected: false });
+  const [isConnectingOutlook, setIsConnectingOutlook] = useState(false);
+
   const categories = [
     'All',
     'Preferences',
@@ -71,6 +77,22 @@ export default function SettingsPage() {
   useEffect(() => {
     fetchMemories();
     fetchGoogleStatus();
+    fetchOutlookStatus();
+
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const outlookErr = params.get('outlook_error');
+      const outlookErrDesc = params.get('outlook_error_description');
+      const outlookConnected = params.get('outlook');
+
+      if (outlookErr) {
+        const msg = `Microsoft OAuth Error (${outlookErr})${outlookErrDesc ? `: ${outlookErrDesc}` : ''}`;
+        setOutlookTestResult(`❌ ${msg}`);
+        setNotification(`❌ ${msg}`);
+      } else if (outlookConnected === 'connected') {
+        setNotification('✓ Microsoft Outlook 365 connected successfully!');
+      }
+    }
   }, [selectedCategory]);
 
   const fetchMemories = async () => {
@@ -98,6 +120,16 @@ export default function SettingsPage() {
       setGoogleStatus(data);
     } catch (err) {
       console.warn("Failed to fetch Google status:", err);
+    }
+  };
+
+  const fetchOutlookStatus = async () => {
+    try {
+      const res = await fetch('/api/auth/outlook/status');
+      const data = await res.json();
+      setOutlookStatus(data);
+    } catch (err) {
+      console.warn("Failed to fetch Outlook status:", err);
     }
   };
 
@@ -130,6 +162,57 @@ export default function SettingsPage() {
     }
   };
 
+  const handleConnectOutlook = async () => {
+    setIsConnectingOutlook(true);
+    try {
+      const res = await fetch('/api/auth/outlook/url');
+      const data = await res.json();
+      if (data.success && data.url) {
+        window.location.href = data.url;
+      } else {
+        alert(data.error || "MICROSOFT_CLIENT_ID is not configured in environment variables. Manual Azure app registration setup is required.");
+      }
+    } catch (err: any) {
+      console.error("Connect Outlook error:", err);
+      alert("Unable to initiate Microsoft OAuth login: " + (err.message || err));
+    } finally {
+      setIsConnectingOutlook(false);
+    }
+  };
+
+  const [outlookTestResult, setOutlookTestResult] = useState<string | null>(null);
+  const [isTestingOutlook, setIsTestingOutlook] = useState(false);
+
+  const handleTestOutlook = async () => {
+    setIsTestingOutlook(true);
+    setOutlookTestResult(null);
+    try {
+      const res = await fetch('/api/auth/outlook/test');
+      const data = await res.json();
+      if (data.success) {
+        setOutlookTestResult(`✓ ${data.message}`);
+      } else {
+        setOutlookTestResult(`❌ ${data.message || data.error || 'Connection test failed'}`);
+      }
+    } catch (err: any) {
+      setOutlookTestResult(`❌ Connection test error: ${err.message || err}`);
+    } finally {
+      setIsTestingOutlook(false);
+    }
+  };
+
+  const handleDisconnectOutlook = async () => {
+    try {
+      const res = await fetch('/api/auth/outlook/status', { method: 'DELETE' });
+      if (res.ok) {
+        setOutlookStatus({ isConnected: false, email: undefined });
+        setOutlookTestResult(null);
+      }
+    } catch (err) {
+      console.error("Disconnect Outlook error:", err);
+    }
+  };
+
   const handleAddMemory = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newKey.trim() || !newValue.trim()) return;
@@ -150,7 +233,7 @@ export default function SettingsPage() {
         setNewKey('');
         setNewValue('');
         setShowAddModal(false);
-        setNotification(`Memory "${data.memory.key}" saved to SQLite.`);
+        setNotification(`Memory "${data.memory.key}" saved to database.`);
       }
     } catch (err) {
       console.error("Failed to add memory:", err);
@@ -210,7 +293,7 @@ export default function SettingsPage() {
   });
 
   return (
-    <AppLayout>
+    <>
       <div className="space-y-6">
         
         {/* Header */}
@@ -220,7 +303,7 @@ export default function SettingsPage() {
             Executive Settings & Assistant Memory
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Manage long-term assistant context, system status, and Google Workspace connections
+            Manage long-term assistant context, system status, Outlook calendar, and mobile push notifications
           </p>
         </div>
 
@@ -365,7 +448,7 @@ export default function SettingsPage() {
                               </div>
                               <p className="text-slate-700 leading-relaxed font-sans">{m.value}</p>
                               <p className="text-[10px] text-slate-400">
-                                Saved on {new Date(m.createdAt).toLocaleDateString()}
+                                Saved on {mounted ? formatDate(new Date(m.createdAt)) : '--'}
                               </p>
                             </div>
 
@@ -396,13 +479,75 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {/* Right Column: Google Workspace & System Architecture */}
+          {/* Right Column: Outlook 365, Push Notifications, & System Architecture */}
           <div className="space-y-4">
             
+            {/* Outlook 365 Calendar Integration Card */}
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-executive space-y-4">
+              <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2 border-b border-slate-100 pb-2">
+                <Mail className="w-4 h-4 text-blue-600" />
+                Microsoft Outlook 365 Integration
+              </h2>
+
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3 text-xs">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-bold text-slate-900">Outlook Calendar (Microsoft Graph)</p>
+                    <p className="text-[11px] text-slate-500">Minimal Scope (Calendars.Read)</p>
+                  </div>
+                  <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${outlookStatus.isConnected ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                    {outlookStatus.isConnected ? 'Connected' : 'Not Connected'}
+                  </span>
+                </div>
+
+                {outlookStatus.isConnected ? (
+                  <div className="space-y-2 pt-2 border-t border-slate-200">
+                    <p className="text-xs text-slate-700">
+                      Connected Account: <span className="font-semibold text-slate-900">{outlookStatus.email || 'Puneet Outlook Account'}</span>
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleTestOutlook}
+                        disabled={isTestingOutlook}
+                        className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 font-semibold py-1.5 rounded-lg transition-colors text-xs"
+                      >
+                        {isTestingOutlook ? 'Testing...' : 'Test Connection'}
+                      </button>
+                      <button
+                        onClick={handleDisconnectOutlook}
+                        className="flex-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold py-1.5 rounded-lg transition-colors text-xs"
+                      >
+                        Disconnect
+                      </button>
+                    </div>
+                    {outlookTestResult && (
+                      <p className="text-[11px] p-2 rounded bg-slate-100 text-slate-800 border border-slate-200 leading-normal">
+                        {outlookTestResult}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-2 pt-2 border-t border-slate-200">
+                    <p className="text-xs text-slate-600">
+                      Connect Puneet&apos;s Microsoft 365 / Outlook Calendar to view live meetings alongside task deadlines.
+                    </p>
+                    <button
+                      onClick={handleConnectOutlook}
+                      disabled={isConnectingOutlook}
+                      className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold py-2 rounded-lg transition-colors shadow-sm flex items-center justify-center gap-2"
+                    >
+                      <Sparkles className="w-4 h-4" />
+                      {isConnectingOutlook ? 'Initiating Microsoft OAuth...' : 'Connect Outlook 365'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
             {/* Google Workspace Section */}
             <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-executive space-y-4">
               <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2 border-b border-slate-100 pb-2">
-                <CalendarIcon className="w-4 h-4 text-blue-600" />
+                <CalendarIcon className="w-4 h-4 text-slate-600" />
                 Google Workspace Integration
               </h2>
 
@@ -410,7 +555,7 @@ export default function SettingsPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="font-bold text-slate-900">Google Calendar</p>
-                    <p className="text-[11px] text-slate-500">Read-only Calendar OAuth Sync</p>
+                    <p className="text-[11px] text-slate-500">Secondary Workspace Sync</p>
                   </div>
                   <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${googleStatus.isConnected ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
                     {googleStatus.isConnected ? 'Connected' : 'Not Connected'}
@@ -420,7 +565,7 @@ export default function SettingsPage() {
                 {googleStatus.isConnected ? (
                   <div className="space-y-2 pt-2 border-t border-slate-200">
                     <p className="text-xs text-slate-700">
-                      Connected Account: <span className="font-semibold text-slate-900">{googleStatus.email || 'puneet@workspace.com'}</span>
+                      Connected Account: <span className="font-semibold text-slate-900">{googleStatus.email || 'Google Account'}</span>
                     </p>
                     <button
                       onClick={handleDisconnectGoogle}
@@ -431,13 +576,10 @@ export default function SettingsPage() {
                   </div>
                 ) : (
                   <div className="space-y-2 pt-2 border-t border-slate-200">
-                    <p className="text-xs text-slate-600">
-                      Connect Puneet&apos;s Google Workspace Calendar to read live appointments alongside executive task deadlines.
-                    </p>
                     <button
                       onClick={handleConnectGoogle}
                       disabled={isConnecting}
-                      className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold py-2 rounded-lg transition-colors shadow-sm flex items-center justify-center gap-2"
+                      className="w-full bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-white font-semibold py-2 rounded-lg transition-colors shadow-sm flex items-center justify-center gap-2"
                     >
                       <Sparkles className="w-4 h-4" />
                       {isConnecting ? 'Initiating OAuth...' : 'Connect Google Calendar'}
@@ -447,11 +589,20 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            {/* System Health */}
+            {/* Mobile Push Notification Settings Card */}
+            <div className="bg-slate-900 text-white p-5 rounded-xl border border-slate-800 shadow-executive space-y-4">
+              <h2 className="text-sm font-bold uppercase tracking-wide flex items-center gap-2 border-b border-slate-800 pb-2 text-indigo-400">
+                <Bell className="w-4 h-4 text-indigo-400" />
+                Mobile Push Notifications (VAPID)
+              </h2>
+              <PushRegister />
+            </div>
+
+            {/* System Architecture */}
             <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-executive space-y-4">
               <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2 border-b border-slate-100 pb-2">
                 <Cpu className="w-4 h-4 text-blue-600" />
-                System Health & Architecture
+                System Architecture
               </h2>
 
               <div className="space-y-3 text-xs">
@@ -459,8 +610,8 @@ export default function SettingsPage() {
                   <div className="flex items-center gap-2">
                     <Database className="w-4 h-4 text-emerald-600" />
                     <div>
-                      <p className="font-semibold text-emerald-900">SQLite + Prisma Storage</p>
-                      <p className="text-[10px] text-emerald-700">Zero-config Local Database Active</p>
+                      <p className="font-semibold text-emerald-900">PostgreSQL Configurable ORM</p>
+                      <p className="text-[10px] text-emerald-700">Prisma Database Ready</p>
                     </div>
                   </div>
                   <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
@@ -470,8 +621,8 @@ export default function SettingsPage() {
                   <div className="flex items-center gap-2">
                     <ShieldCheck className="w-4 h-4 text-blue-600" />
                     <div>
-                      <p className="font-semibold text-blue-900">Server Action Validator</p>
-                      <p className="text-[10px] text-blue-700">Natural Language Intent Verification</p>
+                      <p className="font-semibold text-blue-900">3-Hour Background Cron</p>
+                      <p className="text-[10px] text-blue-700">Idempotent Push Dispatch Endpoint</p>
                     </div>
                   </div>
                   <span className="w-2 h-2 rounded-full bg-blue-500"></span>
@@ -556,6 +707,6 @@ export default function SettingsPage() {
         )}
 
       </div>
-    </AppLayout>
+    </>
   );
 }
