@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Bell, BellOff, CheckCircle2, AlertCircle, RefreshCw, Send } from 'lucide-react';
+import { Bell, BellOff, CheckCircle2, AlertCircle, RefreshCw, Send, Moon, Calendar, CheckSquare } from 'lucide-react';
 
 function urlBase64ToUint8Array(base64String: string) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -18,8 +18,16 @@ export default function PushRegister() {
   const [supported, setSupported] = useState(false);
   const [subscribed, setSubscribed] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [frequencyHours, setFrequencyHours] = useState(3);
+
+  // Expanded Settings state
   const [enabled, setEnabled] = useState(true);
+  const [taskNotificationsEnabled, setTaskNotificationsEnabled] = useState(true);
+  const [reminderNotificationsEnabled, setReminderNotificationsEnabled] = useState(true);
+  const [frequencyHours, setFrequencyHours] = useState(3);
+  const [quietHoursEnabled, setQuietHoursEnabled] = useState(false);
+  const [quietHoursStart, setQuietHoursStart] = useState('22:00');
+  const [quietHoursEnd, setQuietHoursEnd] = useState('07:00');
+
   const [fetchedVapidKey, setFetchedVapidKey] = useState<string>('');
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
@@ -51,8 +59,13 @@ export default function PushRegister() {
       const res = await fetch('/api/push/settings');
       if (res.ok) {
         const data = await res.json();
-        setFrequencyHours(data.frequencyHours ?? 3);
         setEnabled(data.enabled ?? true);
+        setTaskNotificationsEnabled(data.taskNotificationsEnabled ?? true);
+        setReminderNotificationsEnabled(data.reminderNotificationsEnabled ?? true);
+        setFrequencyHours(data.frequencyHours ?? 3);
+        setQuietHoursEnabled(data.quietHoursEnabled ?? false);
+        setQuietHoursStart(data.quietHoursStart ?? '22:00');
+        setQuietHoursEnd(data.quietHoursEnd ?? '07:00');
         if (data.vapidPublicKey) {
           setFetchedVapidKey(data.vapidPublicKey);
         }
@@ -69,6 +82,33 @@ export default function PushRegister() {
       setSubscribed(!!sub);
     } catch (e) {
       console.error('Error checking push subscription:', e);
+    }
+  };
+
+  const saveSettings = async (updates: Record<string, any>) => {
+    try {
+      const payload = {
+        enabled,
+        taskNotificationsEnabled,
+        reminderNotificationsEnabled,
+        frequencyHours,
+        quietHoursEnabled,
+        quietHoursStart,
+        quietHoursEnd,
+        ...updates,
+      };
+
+      const res = await fetch('/api/push/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) {
+        setMessage({ text: 'Notification preferences updated successfully.', type: 'success' });
+      }
+    } catch (e) {
+      console.error('Error updating settings:', e);
     }
   };
 
@@ -124,6 +164,11 @@ export default function PushRegister() {
           endpoint: subObj.endpoint,
           keys: subObj.keys,
           frequencyHours,
+          taskNotificationsEnabled,
+          reminderNotificationsEnabled,
+          quietHoursEnabled,
+          quietHoursStart,
+          quietHoursEnd,
         }),
       });
 
@@ -141,43 +186,13 @@ export default function PushRegister() {
     }
   };
 
-  const handleUpdateFrequency = async (newFreq: number) => {
-    setFrequencyHours(newFreq);
-    try {
-      await fetch('/api/push/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled, frequencyHours: newFreq }),
-      });
-      setMessage({ text: `Notification frequency updated to every ${newFreq} hour${newFreq > 1 ? 's' : ''}.`, type: 'success' });
-    } catch (e) {
-      console.error('Error updating push frequency:', e);
-    }
-  };
-
-  const handleToggleEnable = async (newEnabled: boolean) => {
-    setEnabled(newEnabled);
-    try {
-      await fetch('/api/push/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: newEnabled, frequencyHours }),
-      });
-      setMessage({ text: newEnabled ? 'Mobile push notifications enabled.' : 'Mobile push notifications disabled.', type: 'success' });
-    } catch (e) {
-      console.error('Error toggling push notifications:', e);
-    }
-  };
-
   const handleTestNotification = async () => {
     setLoading(true);
     setMessage(null);
     try {
-      // 1. Dispatch backend cron notification
       const res = await fetch('/api/cron/push-notifications?force=true');
       const data = await res.json();
 
-      // 2. Also trigger direct local ServiceWorker notification for immediate browser feedback
       if ('serviceWorker' in navigator && Notification.permission === 'granted') {
         const reg = await navigator.serviceWorker.ready;
         reg.showNotification('🔔 Local Test Push (Puneet AI)', {
@@ -195,7 +210,6 @@ export default function PushRegister() {
         setMessage({ text: data.error || data.message || 'Local test notification triggered directly in browser.', type: 'success' });
       }
     } catch (e: any) {
-      // If server dispatch errors out locally, show fallback local SW notification
       if ('serviceWorker' in navigator && Notification.permission === 'granted') {
         try {
           const reg = await navigator.serviceWorker.ready;
@@ -242,6 +256,7 @@ export default function PushRegister() {
         </div>
       )}
 
+      {/* Main Switch Card */}
       <div className="flex items-center justify-between p-4 bg-slate-800/40 border border-slate-700/50 rounded-xl">
         <div className="flex items-center gap-3">
           <div className={`p-2.5 rounded-lg ${subscribed && enabled ? 'bg-indigo-500/20 text-indigo-400' : 'bg-slate-700/40 text-slate-400'}`}>
@@ -271,7 +286,11 @@ export default function PushRegister() {
         <div className="flex items-center gap-2">
           {subscribed ? (
             <button
-              onClick={() => handleToggleEnable(!enabled)}
+              onClick={() => {
+                const nextVal = !enabled;
+                setEnabled(nextVal);
+                saveSettings({ enabled: nextVal });
+              }}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                 enabled
                   ? 'bg-rose-500/20 text-rose-300 hover:bg-rose-500/30'
@@ -303,32 +322,126 @@ export default function PushRegister() {
         </div>
       </div>
 
+      {/* Extended Notification Controls */}
       {subscribed && (
-        <div className="p-4 bg-slate-800/20 border border-slate-700/40 rounded-xl space-y-3">
-          <label className="block text-xs font-medium text-slate-300">Notification Frequency</label>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            {[
-              { label: 'Every 1 hr', hours: 1 },
-              { label: 'Every 3 hrs (Default)', hours: 3 },
-              { label: 'Every 6 hrs', hours: 6 },
-              { label: 'Daily (24 hrs)', hours: 24 },
-            ].map((item) => (
-              <button
-                key={item.hours}
-                onClick={() => handleUpdateFrequency(item.hours)}
-                className={`py-2 px-3 rounded-lg text-xs font-medium border transition-colors ${
-                  frequencyHours === item.hours
-                    ? 'bg-indigo-600/30 border-indigo-500/50 text-indigo-300'
-                    : 'bg-slate-800/60 border-slate-700/50 text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                {item.label}
-              </button>
-            ))}
+        <div className="p-4 bg-slate-800/20 border border-slate-700/40 rounded-xl space-y-4">
+          {/* Notification Categories */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-3 border-b border-slate-700/40">
+            <div className="flex items-center justify-between p-3 bg-slate-800/60 rounded-lg border border-slate-700/50">
+              <div className="flex items-center gap-2">
+                <CheckSquare className="w-4 h-4 text-indigo-400" />
+                <span className="text-xs font-medium text-slate-200">Task Notifications</span>
+              </div>
+              <input
+                type="checkbox"
+                checked={taskNotificationsEnabled}
+                onChange={(e) => {
+                  const val = e.target.checked;
+                  setTaskNotificationsEnabled(val);
+                  saveSettings({ taskNotificationsEnabled: val });
+                }}
+                className="w-4 h-4 accent-indigo-600 rounded cursor-pointer"
+              />
+            </div>
+
+            <div className="flex items-center justify-between p-3 bg-slate-800/60 rounded-lg border border-slate-700/50">
+              <div className="flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-emerald-400" />
+                <span className="text-xs font-medium text-slate-200">Reminder Notifications</span>
+              </div>
+              <input
+                type="checkbox"
+                checked={reminderNotificationsEnabled}
+                onChange={(e) => {
+                  const val = e.target.checked;
+                  setReminderNotificationsEnabled(val);
+                  saveSettings({ reminderNotificationsEnabled: val });
+                }}
+                className="w-4 h-4 accent-emerald-600 rounded cursor-pointer"
+              />
+            </div>
+          </div>
+
+          {/* Quiet Hours Settings */}
+          <div className="space-y-2 pb-3 border-b border-slate-700/40">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Moon className="w-4 h-4 text-amber-400" />
+                <label className="text-xs font-medium text-slate-200">Quiet Hours (Overnight Suppression)</label>
+              </div>
+              <input
+                type="checkbox"
+                checked={quietHoursEnabled}
+                onChange={(e) => {
+                  const val = e.target.checked;
+                  setQuietHoursEnabled(val);
+                  saveSettings({ quietHoursEnabled: val });
+                }}
+                className="w-4 h-4 accent-amber-500 rounded cursor-pointer"
+              />
+            </div>
+
+            {quietHoursEnabled && (
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <div>
+                  <label className="block text-[11px] text-slate-400 mb-1">Start Time</label>
+                  <input
+                    type="time"
+                    value={quietHoursStart}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setQuietHoursStart(val);
+                      saveSettings({ quietHoursStart: val });
+                    }}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] text-slate-400 mb-1">End Time</label>
+                  <input
+                    type="time"
+                    value={quietHoursEnd}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setQuietHoursEnd(val);
+                      saveSettings({ quietHoursEnd: val });
+                    }}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Pending Task Frequency */}
+          <div className="space-y-2">
+            <label className="block text-xs font-medium text-slate-300">Pending Executive Summary Frequency</label>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {[
+                { label: 'Every 1 hr', hours: 1 },
+                { label: 'Every 3 hrs (Default)', hours: 3 },
+                { label: 'Every 6 hrs', hours: 6 },
+                { label: 'Daily (24 hrs)', hours: 24 },
+              ].map((item) => (
+                <button
+                  key={item.hours}
+                  onClick={() => {
+                    setFrequencyHours(item.hours);
+                    saveSettings({ frequencyHours: item.hours });
+                  }}
+                  className={`py-2 px-3 rounded-lg text-xs font-medium border transition-colors ${
+                    frequencyHours === item.hours
+                      ? 'bg-indigo-600/30 border-indigo-500/50 text-indigo-300'
+                      : 'bg-slate-800/60 border-slate-700/50 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       )}
     </div>
   );
 }
-

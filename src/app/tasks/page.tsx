@@ -29,6 +29,9 @@ interface Task {
   dueTime?: string;
   category: string;
   notes?: string;
+  outlookEventId?: string;
+  outlookSyncStatus?: string;
+  outlookSyncError?: string;
 }
 
 interface ReminderItem {
@@ -39,6 +42,9 @@ interface ReminderItem {
   triggered: boolean;
   taskId?: string;
   task?: { id: string; title: string };
+  outlookEventId?: string;
+  outlookSyncStatus?: string;
+  outlookSyncError?: string;
   createdAt: string;
 }
 
@@ -48,6 +54,7 @@ export default function TasksPage() {
   const [reminders, setReminders] = useState<ReminderItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [mainView, setMainView] = useState<'tasks' | 'reminders'>('tasks');
+  const [syncingBulk, setSyncingBulk] = useState(false);
 
   // Task filters
   const [searchQuery, setSearchQuery] = useState("");
@@ -112,6 +119,50 @@ export default function TasksPage() {
   useEffect(() => {
     Promise.allSettled([fetchTasks(), fetchReminders()]);
   }, [reminderFilter]);
+
+  const handleBulkSync = async () => {
+    setSyncingBulk(true);
+    try {
+      const res = await fetch('/api/outlook/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'bulk' })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(`Outlook Bulk Sync Complete!\nSynced items: ${data.totalSynced}\nFailed items: ${data.totalFailed}`);
+        fetchTasks();
+        fetchReminders();
+      } else {
+        alert(`Bulk sync error: ${data.error || 'Failed to complete bulk sync'}`);
+      }
+    } catch (err: any) {
+      alert(`Bulk sync failed: ${err.message}`);
+    } finally {
+      setSyncingBulk(false);
+    }
+  };
+
+  const handleManualItemSync = async (type: 'task' | 'reminder', id: string) => {
+    try {
+      const res = await fetch('/api/outlook/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, id })
+      });
+      const data = await res.json();
+      if (data.success) {
+        fetchTasks();
+        fetchReminders();
+      } else {
+        alert(`Outlook sync failed: ${data.error || 'Unknown error'}`);
+        fetchTasks();
+        fetchReminders();
+      }
+    } catch (err: any) {
+      alert(`Sync request failed: ${err.message}`);
+    }
+  };
 
   const handleOpenReminderModal = (rem?: ReminderItem) => {
     if (rem) {
@@ -362,23 +413,34 @@ export default function TasksPage() {
             </p>
           </div>
 
-          {mainView === 'tasks' ? (
+          <div className="flex items-center gap-2 shrink-0">
             <button
-              onClick={() => handleOpenModal()}
-              className="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs px-4 py-2.5 rounded-lg shadow-sm flex items-center gap-1.5 transition-colors shrink-0"
+              onClick={handleBulkSync}
+              disabled={syncingBulk}
+              className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-xs px-3.5 py-2.5 rounded-lg border border-slate-300 flex items-center gap-1.5 transition-colors disabled:opacity-50"
+              title="Sync all unsynced tasks and reminders to Outlook Calendar"
             >
-              <Plus className="w-4 h-4" />
-              <span>New Executive Task</span>
+              <Calendar className="w-4 h-4 text-blue-600" />
+              <span>{syncingBulk ? 'Syncing...' : 'Sync All to Outlook'}</span>
             </button>
-          ) : (
-            <button
-              onClick={() => handleOpenReminderModal()}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs px-4 py-2.5 rounded-lg shadow-sm flex items-center gap-1.5 transition-colors shrink-0"
-            >
-              <Plus className="w-4 h-4" />
-              <span>New Reminder</span>
-            </button>
-          )}
+            {mainView === 'tasks' ? (
+              <button
+                onClick={() => handleOpenModal()}
+                className="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs px-4 py-2.5 rounded-lg shadow-sm flex items-center gap-1.5 transition-colors shrink-0"
+              >
+                <Plus className="w-4 h-4" />
+                <span>New Executive Task</span>
+              </button>
+            ) : (
+              <button
+                onClick={() => handleOpenReminderModal()}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs px-4 py-2.5 rounded-lg shadow-sm flex items-center gap-1.5 transition-colors shrink-0"
+              >
+                <Plus className="w-4 h-4" />
+                <span>New Reminder</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* MAIN VIEW CONTENT */}
@@ -478,7 +540,7 @@ export default function TasksPage() {
                     `}
                   >
                     <div className="space-y-2 flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded border uppercase tracking-wider ${getPriorityBadge(task.priority)}`}>
                           {task.priority}
                         </span>
@@ -488,6 +550,35 @@ export default function TasksPage() {
                         <span className={`text-[11px] font-semibold ${task.status === 'Completed' ? 'text-emerald-600' : 'text-slate-500'}`}>
                           • {task.status}
                         </span>
+                        {task.outlookSyncStatus === 'Synced' ? (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1" title="Synced to Outlook Calendar">
+                            <Check className="w-3 h-3 text-emerald-600" /> Synced to Outlook
+                          </span>
+                        ) : task.outlookSyncStatus === 'Failed' ? (
+                          <div className="flex items-center gap-1">
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 flex items-center gap-1" title={task.outlookSyncError || 'Sync failed'}>
+                              <AlertCircle className="w-3 h-3 text-rose-600" /> Sync failed
+                            </span>
+                            <button
+                              onClick={() => handleManualItemSync('task', task.id)}
+                              className="text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
+                            >
+                              Sync to Outlook
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1">
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1">
+                              <Clock className="w-3 h-3 text-amber-600" /> Sync pending
+                            </span>
+                            <button
+                              onClick={() => handleManualItemSync('task', task.id)}
+                              className="text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
+                            >
+                              Sync to Outlook
+                            </button>
+                          </div>
+                        )}
                       </div>
 
                       <h3 className={`text-base font-semibold ${task.status === 'Completed' ? 'line-through text-slate-500' : 'text-slate-900'}`}>
@@ -592,7 +683,7 @@ export default function TasksPage() {
                       className="bg-white p-5 rounded-xl border border-slate-200 shadow-executive flex items-start justify-between gap-4"
                     >
                       <div className="space-y-2 flex-1">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${
                             rem.triggered 
                               ? 'bg-slate-100 text-slate-500 border border-slate-200' 
@@ -605,6 +696,35 @@ export default function TasksPage() {
                           <span className="text-[10px] font-medium text-slate-400">
                             Channel: {rem.channel || 'IN_APP'}
                           </span>
+                          {rem.outlookSyncStatus === 'Synced' ? (
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1" title="Synced to Outlook Calendar">
+                              <Check className="w-3 h-3 text-emerald-600" /> Synced to Outlook
+                            </span>
+                          ) : rem.outlookSyncStatus === 'Failed' ? (
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 flex items-center gap-1" title={rem.outlookSyncError || 'Sync failed'}>
+                                <AlertCircle className="w-3 h-3 text-rose-600" /> Sync failed
+                              </span>
+                              <button
+                                onClick={() => handleManualItemSync('reminder', rem.id)}
+                                className="text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
+                              >
+                                Sync to Outlook
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1">
+                                <Clock className="w-3 h-3 text-amber-600" /> Sync pending
+                              </span>
+                              <button
+                                onClick={() => handleManualItemSync('reminder', rem.id)}
+                                className="text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
+                              >
+                                Sync to Outlook
+                              </button>
+                            </div>
+                          )}
                         </div>
 
                         <h4 className="font-semibold text-sm text-slate-900">{rem.title}</h4>

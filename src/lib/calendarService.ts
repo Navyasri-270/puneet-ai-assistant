@@ -1,5 +1,6 @@
 import { prisma } from './db';
 import { getTasks, getReminders, TaskItem } from './taskStore';
+import { syncCalendarEventToOutlook, deleteOutlookEvent } from './outlookService';
 
 export interface CalendarEventItem {
   id: string;
@@ -11,6 +12,9 @@ export interface CalendarEventItem {
   isAllDay: boolean;
   category: string;
   createdAt: string;
+  outlookEventId?: string | null;
+  outlookSyncStatus?: string | null;
+  outlookSyncError?: string | null;
   source?: 'local_db' | 'google_calendar' | 'outlook';
 }
 
@@ -26,6 +30,9 @@ export interface CombinedScheduleItem {
   category: string;
   priority?: string; // For task deadlines
   status?: string;   // For task deadlines
+  outlookEventId?: string | null;
+  outlookSyncStatus?: string | null;
+  outlookSyncError?: string | null;
 }
 
 // Memory fallback store for high performance and hot-reload safety
@@ -73,6 +80,9 @@ export async function getCalendarEvents(): Promise<CalendarEventItem[]> {
         endTime: toLocalISOString(e.endTime),
         isAllDay: e.isAllDay,
         category: e.category,
+        outlookEventId: e.outlookEventId,
+        outlookSyncStatus: e.outlookSyncStatus,
+        outlookSyncError: e.outlookSyncError,
         createdAt: toLocalISOString(e.createdAt),
         source: 'local_db' as const
       }));
@@ -235,16 +245,28 @@ export async function createCalendarEvent(data: {
       }
     });
 
+    try {
+      await syncCalendarEventToOutlook(created.id);
+    } catch (syncErr) {
+      console.warn("Outlook auto-sync error during calendar event creation:", syncErr);
+    }
+
+    const latest = await prisma.calendarEvent.findUnique({ where: { id: created.id } });
+    const target = latest || created;
+
     const formatted: CalendarEventItem = {
-      id: created.id,
-      title: created.title,
-      description: created.description,
-      location: created.location,
-      startTime: toLocalISOString(created.startTime),
-      endTime: toLocalISOString(created.endTime),
-      isAllDay: created.isAllDay,
-      category: created.category,
-      createdAt: toLocalISOString(created.createdAt),
+      id: target.id,
+      title: target.title,
+      description: target.description,
+      location: target.location,
+      startTime: toLocalISOString(target.startTime),
+      endTime: toLocalISOString(target.endTime),
+      isAllDay: target.isAllDay,
+      category: target.category,
+      outlookEventId: target.outlookEventId,
+      outlookSyncStatus: target.outlookSyncStatus,
+      outlookSyncError: target.outlookSyncError,
+      createdAt: toLocalISOString(target.createdAt),
       source: 'local_db'
     };
 
@@ -300,6 +322,31 @@ export async function updateCalendarEvent(id: string, updates: Partial<{
           endTime: parseISOToLocalDate(updatedItem.endTime)
         }
       });
+
+      try {
+        await syncCalendarEventToOutlook(id);
+      } catch (syncErr) {
+        console.warn("Outlook auto-sync error during calendar event update:", syncErr);
+      }
+
+      const latest = await prisma.calendarEvent.findUnique({ where: { id } });
+      if (latest) {
+        return {
+          id: latest.id,
+          title: latest.title,
+          description: latest.description,
+          location: latest.location,
+          startTime: toLocalISOString(latest.startTime),
+          endTime: toLocalISOString(latest.endTime),
+          isAllDay: latest.isAllDay,
+          category: latest.category,
+          outlookEventId: latest.outlookEventId,
+          outlookSyncStatus: latest.outlookSyncStatus,
+          outlookSyncError: latest.outlookSyncError,
+          createdAt: toLocalISOString(latest.createdAt),
+          source: 'local_db'
+        };
+      }
     } catch (e) {
       console.warn("DB update warning:", e);
     }
@@ -315,6 +362,14 @@ export async function updateCalendarEvent(id: string, updates: Partial<{
 export async function deleteCalendarEvent(id: string): Promise<boolean> {
   memoryCalendarEvents = memoryCalendarEvents.filter(e => e.id !== id);
   try {
+    const existing = await prisma.calendarEvent.findUnique({ where: { id } });
+    if (existing?.outlookEventId) {
+      try {
+        await deleteOutlookEvent(existing.outlookEventId);
+      } catch (e) {
+        console.warn("Outlook event deletion error:", e);
+      }
+    }
     await prisma.calendarEvent.delete({ where: { id } });
     return true;
   } catch (err) {

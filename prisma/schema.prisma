@@ -8,41 +8,64 @@ datasource db {
 }
 
 model Task {
-  id          String     @id @default(uuid())
-  title       String
-  description String?    @default("")
-  status      String     @default("To Do")
-  priority    String     @default("Medium")
-  dueDate     String?
-  dueTime     String?
-  category    String     @default("General")
-  notes       String?    @default("")
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  reminders   Reminder[]
+  id                  String     @id @default(uuid())
+  title               String
+  description         String?    @default("")
+  status              String     @default("To Do")
+  priority            String     @default("Medium")
+  dueDate             String?
+  dueTime             String?
+  category            String     @default("General")
+  notes               String?    @default("")
+  notificationEnabled Boolean    @default(true)
+  notificationSent    Boolean    @default(false)
+  notificationBefore  Int        @default(15)
+  beforeNotifiedAt    DateTime?
+  dueNotifiedAt       DateTime?
+  overdueNotifiedAt   DateTime?
+  lastNotifiedAt      DateTime?
+  outlookEventId      String?
+  outlookSyncStatus   String?    @default("Pending")
+  outlookSyncError    String?
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+  reminders           Reminder[]
 }
 
 model Reminder {
-  id           String   @id @default(uuid())
-  title        String   @default("Executive Reminder")
-  taskId       String?
-  reminderTime DateTime
-  channel      String   @default("In-App")
-  triggered    Boolean  @default(false)
-  createdAt    DateTime @default(now())
-  task         Task?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  id                  String   @id @default(uuid())
+  title               String   @default("Executive Reminder")
+  taskId              String?
+  reminderTime        DateTime
+  channel             String   @default("In-App")
+  triggered           Boolean  @default(false)
+  notificationEnabled Boolean  @default(true)
+  notificationSent    Boolean  @default(false)
+  notificationBefore  Int      @default(15)
+  beforeNotifiedAt    DateTime?
+  dueNotifiedAt       DateTime?
+  overdueNotifiedAt   DateTime?
+  lastNotifiedAt      DateTime?
+  outlookEventId      String?
+  outlookSyncStatus   String?  @default("Pending")
+  outlookSyncError    String?
+  createdAt           DateTime @default(now())
+  task                Task?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
 }
 
 model CalendarEvent {
-  id          String   @id @default(uuid())
-  title       String
-  description String?  @default("")
-  location    String?  @default("")
-  startTime   DateTime
-  endTime     DateTime
-  isAllDay    Boolean  @default(false)
-  category    String   @default("Meeting")
-  createdAt   DateTime @default(now())
+  id                String   @id @default(uuid())
+  title             String
+  description       String?  @default("")
+  location          String?  @default("")
+  startTime         DateTime
+  endTime           DateTime
+  isAllDay          Boolean  @default(false)
+  category          String   @default("Meeting")
+  outlookEventId    String?
+  outlookSyncStatus String?  @default("Pending")
+  outlookSyncError  String?
+  createdAt         DateTime @default(now())
 }
 
 model EmailDraft {
@@ -101,14 +124,21 @@ model MicrosoftConnection {
 }
 
 model PushSubscription {
-  id             String    @id @default(uuid())
-  endpoint       String    @unique
-  p256dh         String
-  auth           String
-  enabled        Boolean   @default(true)
-  frequencyHours Int       @default(3)
-  lastNotifiedAt DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id                           String    @id @default(uuid())
+  endpoint                     String    @unique
+  p256dh                       String
+  auth                         String
+  enabled                      Boolean   @default(true)
+  taskNotificationsEnabled     Boolean   @default(true)
+  reminderNotificationsEnabled Boolean   @default(true)
+  frequencyHours               Int       @default(3)
+  quietHoursEnabled            Boolean   @default(false)
+  quietHoursStart              String    @default("22:00")
+  quietHoursEnd                String    @default("07:00")
+  timezone                     String    @default("Asia/Kolkata")
+  lastSummaryNotifiedAt        DateTime?
+  lastNotifiedAt               DateTime?
+  createdAt                    DateTime  @default(now())
+  updatedAt                    DateTime  @updatedAt
 }
 

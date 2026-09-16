@@ -1,4 +1,5 @@
 import { prisma } from './db';
+import { syncTaskToOutlook, syncReminderToOutlook, deleteOutlookEvent } from './outlookService';
 
 export interface TaskItem {
   id: string;
@@ -10,6 +11,9 @@ export interface TaskItem {
   dueTime?: string | null;
   category: string;
   notes?: string | null;
+  outlookEventId?: string | null;
+  outlookSyncStatus?: string | null;
+  outlookSyncError?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -36,6 +40,9 @@ export async function getTasks(): Promise<TaskItem[]> {
         dueTime: t.dueTime,
         category: t.category,
         notes: t.notes,
+        outlookEventId: t.outlookEventId,
+        outlookSyncStatus: t.outlookSyncStatus,
+        outlookSyncError: t.outlookSyncError,
         createdAt: t.createdAt.toISOString(),
         updatedAt: t.updatedAt.toISOString(),
       }));
@@ -77,14 +84,27 @@ export async function createTask(data: Partial<TaskItem>): Promise<TaskItem> {
         notes: newTask.notes,
       },
     });
+
+    try {
+      await syncTaskToOutlook(created.id);
+    } catch (syncErr) {
+      console.warn("Outlook auto-sync error during task creation:", syncErr);
+    }
+
+    const latest = await prisma.task.findUnique({ where: { id: created.id } });
+    const target = latest || created;
+
     const formatted: TaskItem = {
-      ...created,
-      description: created.description || "",
-      dueDate: created.dueDate || "",
-      dueTime: created.dueTime || "",
-      notes: created.notes || "",
-      createdAt: created.createdAt.toISOString(),
-      updatedAt: created.updatedAt.toISOString(),
+      ...target,
+      description: target.description || "",
+      dueDate: target.dueDate || "",
+      dueTime: target.dueTime || "",
+      notes: target.notes || "",
+      outlookEventId: target.outlookEventId,
+      outlookSyncStatus: target.outlookSyncStatus,
+      outlookSyncError: target.outlookSyncError,
+      createdAt: target.createdAt.toISOString(),
+      updatedAt: target.updatedAt.toISOString(),
     };
     memoryTasks.unshift(formatted);
     return formatted;
@@ -106,21 +126,42 @@ export async function updateTask(id: string, updates: Partial<TaskItem>): Promis
       };
     }
     
+    const dataToUpdate: any = {
+      ...updates,
+      updatedAt: new Date(),
+    };
+    if (updates.dueDate !== undefined || updates.dueTime !== undefined || (updates.status && updates.status !== 'Completed' && updates.status !== 'Done' && updates.status !== 'Cancelled')) {
+      dataToUpdate.notificationSent = false;
+      dataToUpdate.beforeNotifiedAt = null;
+      dataToUpdate.dueNotifiedAt = null;
+      dataToUpdate.overdueNotifiedAt = null;
+    }
+
     const dbUpdated = await prisma.task.update({
       where: { id },
-      data: {
-        ...updates,
-        updatedAt: new Date(),
-      },
+      data: dataToUpdate,
     });
+
+    try {
+      await syncTaskToOutlook(id);
+    } catch (syncErr) {
+      console.warn("Outlook auto-sync error during task update:", syncErr);
+    }
+
+    const latest = await prisma.task.findUnique({ where: { id } });
+    const finalObj = latest || dbUpdated;
+
     return {
-      ...dbUpdated,
-      description: dbUpdated.description || "",
-      dueDate: dbUpdated.dueDate || "",
-      dueTime: dbUpdated.dueTime || "",
-      notes: dbUpdated.notes || "",
-      createdAt: dbUpdated.createdAt.toISOString(),
-      updatedAt: dbUpdated.updatedAt.toISOString(),
+      ...finalObj,
+      description: finalObj.description || "",
+      dueDate: finalObj.dueDate || "",
+      dueTime: finalObj.dueTime || "",
+      notes: finalObj.notes || "",
+      outlookEventId: finalObj.outlookEventId,
+      outlookSyncStatus: finalObj.outlookSyncStatus,
+      outlookSyncError: finalObj.outlookSyncError,
+      createdAt: finalObj.createdAt.toISOString(),
+      updatedAt: finalObj.updatedAt.toISOString(),
     };
   } catch (err) {
     const task = memoryTasks.find(t => t.id === id);
@@ -131,6 +172,14 @@ export async function updateTask(id: string, updates: Partial<TaskItem>): Promis
 export async function deleteTask(id: string): Promise<boolean> {
   memoryTasks = memoryTasks.filter(t => t.id !== id);
   try {
+    const existing = await prisma.task.findUnique({ where: { id } });
+    if (existing?.outlookEventId) {
+      try {
+        await deleteOutlookEvent(existing.outlookEventId);
+      } catch (e) {
+        console.warn("Outlook event deletion error:", e);
+      }
+    }
     await prisma.task.delete({ where: { id } });
     return true;
   } catch (err) {
@@ -478,6 +527,9 @@ export interface ReminderItem {
   reminderTime: string;
   channel: string;
   triggered: boolean;
+  outlookEventId?: string | null;
+  outlookSyncStatus?: string | null;
+  outlookSyncError?: string | null;
   createdAt: string;
 }
 
@@ -514,6 +566,9 @@ export async function getReminders(filter?: 'today' | 'upcoming' | 'triggered' |
         reminderTime: r.reminderTime.toISOString(),
         channel: r.channel,
         triggered: r.triggered,
+        outlookEventId: r.outlookEventId,
+        outlookSyncStatus: r.outlookSyncStatus,
+        outlookSyncError: r.outlookSyncError,
         createdAt: r.createdAt.toISOString(),
       }));
 
@@ -567,27 +622,39 @@ export async function createReminder(data: { title?: string; reminderTime: strin
       include: { task: true }
     });
 
+    try {
+      await syncReminderToOutlook(created.id);
+    } catch (syncErr) {
+      console.warn("Outlook auto-sync error during reminder creation:", syncErr);
+    }
+
+    const latest = await prisma.reminder.findUnique({ where: { id: created.id }, include: { task: true } });
+    const target = latest || created;
+
     const formatted: ReminderItem = {
-      id: created.id,
-      title: created.title,
-      taskId: created.taskId,
-      task: created.task ? {
-        id: created.task.id,
-        title: created.task.title,
-        description: created.task.description,
-        status: created.task.status,
-        priority: created.task.priority,
-        dueDate: created.task.dueDate,
-        dueTime: created.task.dueTime,
-        category: created.task.category,
-        notes: created.task.notes,
-        createdAt: created.task.createdAt.toISOString(),
-        updatedAt: created.task.updatedAt.toISOString(),
+      id: target.id,
+      title: target.title,
+      taskId: target.taskId,
+      task: target.task ? {
+        id: target.task.id,
+        title: target.task.title,
+        description: target.task.description,
+        status: target.task.status,
+        priority: target.task.priority,
+        dueDate: target.task.dueDate,
+        dueTime: target.task.dueTime,
+        category: target.task.category,
+        notes: target.task.notes,
+        createdAt: target.task.createdAt.toISOString(),
+        updatedAt: target.task.updatedAt.toISOString(),
       } : null,
-      reminderTime: created.reminderTime.toISOString(),
-      channel: created.channel,
-      triggered: created.triggered,
-      createdAt: created.createdAt.toISOString()
+      reminderTime: target.reminderTime.toISOString(),
+      channel: target.channel,
+      triggered: target.triggered,
+      outlookEventId: target.outlookEventId,
+      outlookSyncStatus: target.outlookSyncStatus,
+      outlookSyncError: target.outlookSyncError,
+      createdAt: target.createdAt.toISOString()
     };
     memoryReminders.unshift(formatted);
     return formatted;
@@ -620,27 +687,39 @@ export async function updateReminder(id: string, updates: Partial<{ title: strin
       include: { task: true }
     });
 
+    try {
+      await syncReminderToOutlook(id);
+    } catch (syncErr) {
+      console.warn("Outlook auto-sync error during reminder update:", syncErr);
+    }
+
+    const latest = await prisma.reminder.findUnique({ where: { id }, include: { task: true } });
+    const target = latest || updated;
+
     return {
-      id: updated.id,
-      title: updated.title,
-      taskId: updated.taskId,
-      task: updated.task ? {
-        id: updated.task.id,
-        title: updated.task.title,
-        description: updated.task.description,
-        status: updated.task.status,
-        priority: updated.task.priority,
-        dueDate: updated.task.dueDate,
-        dueTime: updated.task.dueTime,
-        category: updated.task.category,
-        notes: updated.task.notes,
-        createdAt: updated.task.createdAt.toISOString(),
-        updatedAt: updated.task.updatedAt.toISOString(),
+      id: target.id,
+      title: target.title,
+      taskId: target.taskId,
+      task: target.task ? {
+        id: target.task.id,
+        title: target.task.title,
+        description: target.task.description,
+        status: target.task.status,
+        priority: target.task.priority,
+        dueDate: target.task.dueDate,
+        dueTime: target.task.dueTime,
+        category: target.task.category,
+        notes: target.task.notes,
+        createdAt: target.task.createdAt.toISOString(),
+        updatedAt: target.task.updatedAt.toISOString(),
       } : null,
-      reminderTime: updated.reminderTime.toISOString(),
-      channel: updated.channel,
-      triggered: updated.triggered,
-      createdAt: updated.createdAt.toISOString()
+      reminderTime: target.reminderTime.toISOString(),
+      channel: target.channel,
+      triggered: target.triggered,
+      outlookEventId: target.outlookEventId,
+      outlookSyncStatus: target.outlookSyncStatus,
+      outlookSyncError: target.outlookSyncError,
+      createdAt: target.createdAt.toISOString()
     };
   } catch (err) {
     console.warn("DB update reminder fallback:", err);
@@ -651,6 +730,14 @@ export async function updateReminder(id: string, updates: Partial<{ title: strin
 export async function deleteReminder(id: string) {
   memoryReminders = memoryReminders.filter(r => r.id !== id);
   try {
+    const existing = await prisma.reminder.findUnique({ where: { id } });
+    if (existing?.outlookEventId) {
+      try {
+        await deleteOutlookEvent(existing.outlookEventId);
+      } catch (e) {
+        console.warn("Outlook reminder event deletion error:", e);
+      }
+    }
     await prisma.reminder.delete({ where: { id } });
     return true;
   } catch (err) {
