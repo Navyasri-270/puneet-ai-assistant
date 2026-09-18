@@ -1,14 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { updatePushSettings } from '@/lib/pushService';
-import { validateExecutiveAuth, sanitizeErrorResponse } from '@/lib/auth';
+import { sanitizeErrorResponse } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(req: NextRequest) {
-  const auth = validateExecutiveAuth(req);
-  if (!auth.authorized && auth.response) return auth.response;
-
+export async function GET() {
   try {
     const sub = await prisma.pushSubscription.findFirst({
       orderBy: { updatedAt: 'desc' },
@@ -32,12 +29,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = validateExecutiveAuth(req);
-  if (!auth.authorized && auth.response) return auth.response;
-
   try {
     const body = await req.json();
-
     await updatePushSettings(body);
     return NextResponse.json({ success: true, settings: body });
   } catch (error: any) {

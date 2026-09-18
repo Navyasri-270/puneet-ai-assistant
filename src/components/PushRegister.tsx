@@ -19,7 +19,7 @@ export default function PushRegister() {
   const [subscribed, setSubscribed] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // Expanded Settings state
+  // Settings state
   const [enabled, setEnabled] = useState(true);
   const [taskNotificationsEnabled, setTaskNotificationsEnabled] = useState(true);
   const [reminderNotificationsEnabled, setReminderNotificationsEnabled] = useState(true);
@@ -38,6 +38,8 @@ export default function PushRegister() {
         checkExistingSubscription();
         fetchSettings();
       });
+    } else {
+      setSupported(false);
     }
   }, []);
 
@@ -49,8 +51,9 @@ export default function PushRegister() {
           await navigator.serviceWorker.register('/sw.js');
         }
       }
-    } catch (e) {
-      console.warn('Service worker registration attempt:', e);
+    } catch (e: any) {
+      console.warn('Service worker registration attempt error:', e);
+      throw new Error(`Service Worker registration failed: ${e.message || 'sw.js could not be loaded'}`);
     }
   };
 
@@ -117,39 +120,34 @@ export default function PushRegister() {
     setMessage(null);
 
     try {
-      if (typeof window !== 'undefined' && 'Notification' in window) {
-        if (Notification.permission === 'denied') {
-          setMessage({
-            text: 'Notification permission was denied in your browser settings. Please reset site permissions in your browser address bar to allow notifications.',
-            type: 'error',
-          });
-          setLoading(false);
-          return;
-        }
+      // Stage 1: Browser Support Check
+      if (typeof window === 'undefined' || !('Notification' in window)) {
+        throw new Error('Web Push Notifications are not supported on this browser.');
+      }
 
+      // Stage 2: Notification Permission Request
+      if (Notification.permission === 'denied') {
+        throw new Error('Notification permission was blocked in your browser settings. Please click the lock icon in your browser address bar and set Notifications to "Allow".');
+      }
+
+      if (Notification.permission !== 'granted') {
         const permission = await Notification.requestPermission();
         if (permission !== 'granted') {
-          setMessage({
-            text: 'Notification permission was denied in your browser.',
-            type: 'error',
-          });
-          setLoading(false);
-          return;
+          throw new Error('Notification permission was denied by user.');
         }
       }
 
+      // Stage 3: VAPID Public Key Verification
       const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || fetchedVapidKey;
       if (!vapidPublicKey) {
-        setMessage({
-          text: 'VAPID public key is not configured in production environment variables.',
-          type: 'error',
-        });
-        setLoading(false);
-        return;
+        throw new Error('VAPID Public Key is not configured in production environment variables (NEXT_PUBLIC_VAPID_PUBLIC_KEY missing).');
       }
 
+      // Stage 4: Service Worker Registration
       await ensureServiceWorkerRegistered();
       const reg = await navigator.serviceWorker.ready;
+
+      // Stage 5: PushManager Subscription
       const sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
@@ -157,6 +155,7 @@ export default function PushRegister() {
 
       const subObj = sub.toJSON();
 
+      // Stage 6: Database Persistence
       const res = await fetch('/api/push/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -172,15 +171,16 @@ export default function PushRegister() {
         }),
       });
 
-      if (!res.ok) {
-        throw new Error('Failed to save subscription on server');
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to persist push subscription to database.');
       }
 
       setSubscribed(true);
-      setMessage({ text: 'Push notifications registered successfully on this device!', type: 'success' });
+      setMessage({ text: '✓ Mobile Push Notifications registered successfully! Device saved to database.', type: 'success' });
     } catch (err: any) {
       console.error('Push registration error:', err);
-      setMessage({ text: err.message || 'Failed to subscribe to push notifications.', type: 'error' });
+      setMessage({ text: `❌ Enable Notifications Error: ${err.message || 'Failed to subscribe to push notifications.'}`, type: 'error' });
     } finally {
       setLoading(false);
     }
@@ -190,42 +190,16 @@ export default function PushRegister() {
     setLoading(true);
     setMessage(null);
     try {
-      const res = await fetch('/api/cron/push-notifications?force=true');
+      const res = await fetch('/api/push/test', { method: 'POST' });
       const data = await res.json();
 
-      if ('serviceWorker' in navigator && Notification.permission === 'granted') {
-        const reg = await navigator.serviceWorker.ready;
-        reg.showNotification('🔔 Local Test Push (Puneet AI)', {
-          body: 'This is a test Web Push notification for Puneet AI Assistant.',
-          icon: '/icons/icon-192.png',
-          badge: '/icons/icon-192.png',
-          tag: 'test-push-local',
-          data: { url: '/tasks' },
-        });
-      }
-
       if (res.ok && data.success) {
-        setMessage({ text: data.message || 'Test push notification dispatched successfully!', type: 'success' });
+        setMessage({ text: data.message || '✓ Test Web Push notification delivered!', type: 'success' });
       } else {
-        setMessage({ text: data.error || data.message || 'Local test notification triggered directly in browser.', type: 'success' });
+        setMessage({ text: `❌ Test Push Error: ${data.error || 'Failed to send test notification'}`, type: 'error' });
       }
     } catch (e: any) {
-      if ('serviceWorker' in navigator && Notification.permission === 'granted') {
-        try {
-          const reg = await navigator.serviceWorker.ready;
-          reg.showNotification('🔔 Local Test Push (Puneet AI)', {
-            body: 'Local fallback test notification.',
-            icon: '/icons/icon-192.png',
-            tag: 'test-push-local',
-            data: { url: '/tasks' },
-          });
-          setMessage({ text: 'Local test notification displayed via Service Worker.', type: 'success' });
-        } catch (swErr: any) {
-          setMessage({ text: e.message || 'Failed to send test notification.', type: 'error' });
-        }
-      } else {
-        setMessage({ text: e.message || 'Failed to send test notification.', type: 'error' });
-      }
+      setMessage({ text: `❌ Test Push Error: ${e.message || 'Failed to send test notification.'}`, type: 'error' });
     } finally {
       setLoading(false);
     }
@@ -235,8 +209,9 @@ export default function PushRegister() {
 
   if (!supported) {
     return (
-      <div className="p-4 bg-slate-800/50 border border-slate-700/50 rounded-xl text-slate-400 text-sm">
-        Web Push Notifications are not supported in this browser environment.
+      <div className="p-4 bg-slate-800/50 border border-slate-700/50 rounded-xl text-amber-400 text-xs flex items-center gap-2">
+        <AlertCircle className="w-4 h-4 shrink-0" />
+        Web Push Notifications are not supported in this browser. Please use Chrome, Edge, Safari, or a Mobile PWA.
       </div>
     );
   }
@@ -245,7 +220,7 @@ export default function PushRegister() {
     <div className="space-y-4">
       {message && (
         <div
-          className={`p-3 rounded-lg flex items-center gap-2 text-sm ${
+          className={`p-3 rounded-lg flex items-center gap-2 text-xs font-medium ${
             message.type === 'success'
               ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
               : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
@@ -267,7 +242,7 @@ export default function PushRegister() {
             <p className="text-xs text-slate-400">
               {subscribed
                 ? enabled
-                  ? 'Active on Puneet’s device (PWA background push)'
+                  ? 'Active on Puneet’s device (PWA background push enabled)'
                   : 'Notifications currently disabled'
                 : 'Click enable to register device push alerts'}
             </p>
@@ -277,7 +252,7 @@ export default function PushRegister() {
               </p>
             ) : (
               <p className="text-[10px] text-amber-400 mt-1 flex items-center gap-1">
-                <AlertCircle className="w-3 h-3" /> VAPID key pair pending configuration
+                <AlertCircle className="w-3 h-3" /> NEXT_PUBLIC_VAPID_PUBLIC_KEY required for push
               </p>
             )}
           </div>
@@ -302,7 +277,7 @@ export default function PushRegister() {
           ) : (
             <button
               onClick={handleSubscribe}
-              disabled={loading || !activeVapidKey}
+              disabled={loading}
               className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold flex items-center gap-2 transition-colors disabled:opacity-50"
             >
               {loading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Bell className="w-3.5 h-3.5" />}

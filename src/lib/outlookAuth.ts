@@ -1,42 +1,53 @@
+import { NextRequest } from 'next/server';
 import { prisma } from './db';
 import { encryptToken, decryptToken } from './encryption';
 import { logger } from './logger';
 
 const SCOPES = ['openid', 'profile', 'User.Read', 'Calendars.Read', 'offline_access'].join(' ');
 
-export function getOutlookConfig() {
-  const clientId = process.env.MICROSOFT_CLIENT_ID || '';
-  const clientSecret = process.env.MICROSOFT_CLIENT_SECRET || '';
-  const tenantId = process.env.MICROSOFT_TENANT_ID || 'common';
-  
+/**
+ * Resolves the shared Microsoft Outlook OAuth Redirect URI consistently.
+ * Prioritizes:
+ * 1. process.env.MICROSOFT_REDIRECT_URI
+ * 2. process.env.NEXT_PUBLIC_APP_URL
+ * 3. Stable production domain fallback (https://puneet-ai-assistant.vercel.app/api/auth/outlook/callback)
+ * 4. Development mode fallback (http://localhost:3000/api/auth/outlook/callback)
+ */
+export function getOutlookRedirectUri(req?: NextRequest): string {
   let redirectUri = (process.env.MICROSOFT_REDIRECT_URI || '').trim();
-  
+
   if (!redirectUri && process.env.NEXT_PUBLIC_APP_URL) {
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL.trim().replace(/\/$/, '');
     redirectUri = `${baseUrl}/api/auth/outlook/callback`;
   }
 
-  if (!redirectUri && process.env.VERCEL_URL) {
-    const vercelHost = process.env.VERCEL_URL.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
-    redirectUri = `https://${vercelHost}/api/auth/outlook/callback`;
-  }
-
-  if (!redirectUri && process.env.NEXT_PUBLIC_VERCEL_URL) {
-    const vercelHost = process.env.NEXT_PUBLIC_VERCEL_URL.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
-    redirectUri = `https://${vercelHost}/api/auth/outlook/callback`;
-  }
-
+  // If in local development, use localhost
   if (!redirectUri && process.env.NODE_ENV === 'development') {
     redirectUri = 'http://localhost:3000/api/auth/outlook/callback';
   }
 
-  logger.info(`[OutlookAuth] Resolved redirect_uri: "${redirectUri}"`);
+  // Stable production domain default fallback
+  if (!redirectUri) {
+    redirectUri = 'https://puneet-ai-assistant.vercel.app/api/auth/outlook/callback';
+  }
+
+  // Safe logging only: Never log client secrets or tokens
+  logger.info(`[OutlookAuth] Resolved redirect_uri: "${redirectUri}" (MICROSOFT_REDIRECT_URI configured: ${!!process.env.MICROSOFT_REDIRECT_URI})`);
+
+  return redirectUri;
+}
+
+export function getOutlookConfig(req?: NextRequest, customRedirectUri?: string) {
+  const clientId = process.env.MICROSOFT_CLIENT_ID || '';
+  const clientSecret = process.env.MICROSOFT_CLIENT_SECRET || '';
+  const tenantId = process.env.MICROSOFT_TENANT_ID || 'common';
+  const redirectUri = customRedirectUri || getOutlookRedirectUri(req);
 
   return { clientId, clientSecret, tenantId, redirectUri, scopes: SCOPES };
 }
 
-export function getMicrosoftAuthUrl(state?: string): string {
-  const { clientId, tenantId, redirectUri } = getOutlookConfig();
+export function getMicrosoftAuthUrl(state?: string, req?: NextRequest): string {
+  const { clientId, tenantId, redirectUri } = getOutlookConfig(req);
 
   if (!clientId) {
     logger.error('[OutlookAuth] Error: MICROSOFT_CLIENT_ID is missing from environment variables.');
@@ -59,8 +70,8 @@ export function getMicrosoftAuthUrl(state?: string): string {
   return `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?${params.toString()}`;
 }
 
-export async function exchangeCodeForTokens(code: string) {
-  const { clientId, clientSecret, tenantId, redirectUri } = getOutlookConfig();
+export async function exchangeCodeForTokens(code: string, customRedirectUri?: string, req?: NextRequest) {
+  const { clientId, clientSecret, tenantId, redirectUri } = getOutlookConfig(req, customRedirectUri);
 
   if (!clientId || !clientSecret) {
     logger.error('[OutlookAuth] Error: Credentials missing during code exchange.');

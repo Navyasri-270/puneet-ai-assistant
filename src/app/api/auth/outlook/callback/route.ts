@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { exchangeCodeForTokens } from '@/lib/outlookAuth';
+import { exchangeCodeForTokens, getOutlookRedirectUri } from '@/lib/outlookAuth';
 
 export const dynamic = 'force-dynamic';
 
@@ -8,6 +8,13 @@ export async function GET(req: NextRequest) {
   const code = searchParams.get('code');
   const error = searchParams.get('error');
   const errorDescription = searchParams.get('error_description');
+
+  let redirectUri = '';
+  try {
+    redirectUri = getOutlookRedirectUri(req);
+  } catch (e) {
+    redirectUri = `${req.nextUrl.origin}/api/auth/outlook/callback`;
+  }
 
   const origin = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : req.nextUrl.origin);
 
@@ -21,7 +28,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    await exchangeCodeForTokens(code);
+    await exchangeCodeForTokens(code, redirectUri, req);
     return NextResponse.redirect(`${origin}/settings?outlook=connected`);
   } catch (err: any) {
     console.error('[OutlookCallback] Exchange Microsoft code error:', err.message || err);
