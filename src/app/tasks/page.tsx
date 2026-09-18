@@ -17,7 +17,7 @@ import {
   ChevronDown,
   Bell
 } from 'lucide-react';
-import { formatDate, formatTime } from '@/lib/dateUtils';
+import { formatDate, formatTime, DEFAULT_TIMEZONE } from '@/lib/dateUtils';
 import { useMounted } from '@/lib/useExecutiveTimezone';
 
 interface Task {
@@ -137,7 +137,7 @@ export default function TasksPage() {
     quietHoursEnabled: false,
     quietHoursStart: "22:00",
     quietHoursEnd: "07:00",
-    timezone: "Asia/Kolkata"
+    timezone: DEFAULT_TIMEZONE
   });
 
   const fetchTasks = useCallback(async () => {
@@ -233,7 +233,7 @@ export default function TasksPage() {
         quietHoursEnabled: rem.quietHoursEnabled ?? false,
         quietHoursStart: rem.quietHoursStart || "22:00",
         quietHoursEnd: rem.quietHoursEnd || "07:00",
-        timezone: rem.timezone || "Asia/Kolkata"
+        timezone: rem.timezone || DEFAULT_TIMEZONE
       });
     } else {
       setEditingReminder(null);
@@ -249,7 +249,7 @@ export default function TasksPage() {
         quietHoursEnabled: false,
         quietHoursStart: "22:00",
         quietHoursEnd: "07:00",
-        timezone: "Asia/Kolkata"
+        timezone: DEFAULT_TIMEZONE
       });
     }
     setIsReminderModalOpen(true);

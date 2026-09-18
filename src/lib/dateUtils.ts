@@ -1,12 +1,14 @@
+export const DEFAULT_TIMEZONE = 'Asia/Dubai';
+
 export const COMMON_TIMEZONES = [
-  { value: 'Asia/Kolkata', label: 'India Standard Time (IST) — Asia/Kolkata' },
+  { value: 'Asia/Dubai', label: 'Gulf Standard Time (GST) — Dubai (Default)' },
+  { value: 'Asia/Kolkata', label: 'India Standard Time (IST) — India' },
   { value: 'America/New_York', label: 'Eastern Time (EST/EDT) — New York' },
   { value: 'America/Chicago', label: 'Central Time (CST/CDT) — Chicago' },
   { value: 'America/Denver', label: 'Mountain Time (MST/MDT) — Denver' },
   { value: 'America/Los_Angeles', label: 'Pacific Time (PST/PDT) — Los Angeles' },
   { value: 'Europe/London', label: 'Greenwich / British Time (GMT/BST) — London' },
   { value: 'Europe/Paris', label: 'Central European Time (CET/CEST) — Paris' },
-  { value: 'Asia/Dubai', label: 'Gulf Standard Time (GST) — Dubai' },
   { value: 'Asia/Singapore', label: 'Singapore Time (SGT) — Singapore' },
   { value: 'Asia/Tokyo', label: 'Japan Standard Time (JST) — Tokyo' },
   { value: 'Australia/Sydney', label: 'Australian Eastern Time (AEST) — Sydney' },
@@ -19,12 +21,12 @@ export const COMMON_TIMEZONES = [
 export function getBrowserTimezone(): string {
   try {
     if (typeof Intl !== 'undefined' && Intl.DateTimeFormat) {
-      return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata';
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || DEFAULT_TIMEZONE;
     }
   } catch (e) {
     console.warn('Failed to resolve browser timezone:', e);
   }
-  return 'Asia/Kolkata';
+  return DEFAULT_TIMEZONE;
 }
 
 /**
@@ -37,7 +39,7 @@ export function getUserTimezone(): string {
       return saved.trim();
     }
   }
-  return getBrowserTimezone();
+  return DEFAULT_TIMEZONE;
 }
 
 /**
@@ -58,7 +60,7 @@ export function setUserTimezone(tz: string): void {
  * 9:00 PM – 4:59 AM → Good Night
  */
 export function getGreetingForTimezone(targetDate: Date = new Date(), timeZone?: string): string {
-  const tz = timeZone || (typeof window !== 'undefined' ? getUserTimezone() : 'Asia/Kolkata');
+  const tz = timeZone || (typeof window !== 'undefined' ? getUserTimezone() : DEFAULT_TIMEZONE);
   try {
     const formatter = new Intl.DateTimeFormat('en-US', {
       timeZone: tz,
@@ -93,7 +95,7 @@ export function formatTime(dateInput?: Date | string | number | null, timeZone?:
   const d = typeof dateInput === 'object' ? dateInput : new Date(dateInput);
   if (isNaN(d.getTime())) return '--:--';
 
-  const tz = timeZone || (typeof window !== 'undefined' ? getUserTimezone() : 'Asia/Kolkata');
+  const tz = timeZone || (typeof window !== 'undefined' ? getUserTimezone() : DEFAULT_TIMEZONE);
   try {
     const timeStr = d.toLocaleTimeString('en-US', {
       timeZone: tz,
@@ -120,7 +122,7 @@ export function formatDate(
   const d = typeof dateInput === 'object' ? dateInput : new Date(dateInput);
   if (isNaN(d.getTime())) return '--';
 
-  const tz = timeZone || (typeof window !== 'undefined' ? getUserTimezone() : 'Asia/Kolkata');
+  const tz = timeZone || (typeof window !== 'undefined' ? getUserTimezone() : DEFAULT_TIMEZONE);
   try {
     return d.toLocaleDateString('en-US', { ...options, timeZone: tz });
   } catch (e) {

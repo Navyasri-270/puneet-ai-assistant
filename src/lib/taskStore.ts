@@ -1,6 +1,6 @@
 import { prisma } from './db';
 import { syncTaskToOutlook, syncReminderToOutlook, deleteOutlookEvent } from './outlookService';
-import { getGreetingForTimezone } from './dateUtils';
+import { getGreetingForTimezone, DEFAULT_TIMEZONE } from './dateUtils';
 
 export interface TaskItem {
   id: string;
@@ -582,7 +582,7 @@ function mapDbReminderToItem(r: any): ReminderItem {
     quietHoursEnabled: r.quietHoursEnabled ?? false,
     quietHoursStart: r.quietHoursStart ?? '22:00',
     quietHoursEnd: r.quietHoursEnd ?? '07:00',
-    timezone: r.timezone ?? 'Asia/Kolkata',
+    timezone: r.timezone ?? DEFAULT_TIMEZONE,
     outlookEventId: r.outlookEventId,
     outlookSyncStatus: r.outlookSyncStatus,
     outlookSyncError: r.outlookSyncError,
@@ -665,7 +665,7 @@ export async function createReminder(data: {
     quietHoursEnabled: data.quietHoursEnabled ?? false,
     quietHoursStart: data.quietHoursStart ?? '22:00',
     quietHoursEnd: data.quietHoursEnd ?? '07:00',
-    timezone: data.timezone ?? 'Asia/Kolkata',
+    timezone: data.timezone ?? DEFAULT_TIMEZONE,
     createdAt: new Date().toISOString()
   };
 

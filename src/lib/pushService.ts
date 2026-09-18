@@ -1,5 +1,6 @@
 import webpush from 'web-push';
 import { PrismaClient } from '@prisma/client';
+import { DEFAULT_TIMEZONE } from './dateUtils';
 
 const prisma = new PrismaClient();
 
@@ -38,7 +39,7 @@ export async function savePushSubscription(sub: {
       quietHoursEnabled: sub.quietHoursEnabled ?? false,
       quietHoursStart: sub.quietHoursStart ?? '22:00',
       quietHoursEnd: sub.quietHoursEnd ?? '07:00',
-      timezone: sub.timezone ?? 'Asia/Kolkata',
+      timezone: sub.timezone ?? DEFAULT_TIMEZONE,
     },
     create: {
       endpoint: sub.endpoint,
@@ -51,7 +52,7 @@ export async function savePushSubscription(sub: {
       quietHoursEnabled: sub.quietHoursEnabled ?? false,
       quietHoursStart: sub.quietHoursStart ?? '22:00',
       quietHoursEnd: sub.quietHoursEnd ?? '07:00',
-      timezone: sub.timezone ?? 'Asia/Kolkata',
+      timezone: sub.timezone ?? DEFAULT_TIMEZONE,
     },
   });
 }
@@ -88,7 +89,7 @@ export function isQuietHours(
   quietHoursEnabled: boolean,
   quietHoursStart: string,
   quietHoursEnd: string,
-  timezone: string = 'Asia/Kolkata',
+  timezone: string = DEFAULT_TIMEZONE,
   targetDate: Date = new Date()
 ): boolean {
   if (!quietHoursEnabled || !quietHoursStart || !quietHoursEnd) return false;
@@ -343,7 +344,7 @@ export async function processAllPushNotifications(force = false): Promise<{
           if (!sub.reminderNotificationsEnabled) return false;
           if (!force && (
             isQuietHours(sub.quietHoursEnabled, sub.quietHoursStart, sub.quietHoursEnd, sub.timezone, now) ||
-            isQuietHours(rem.quietHoursEnabled, rem.quietHoursStart || '22:00', rem.quietHoursEnd || '07:00', rem.timezone || 'Asia/Kolkata', now)
+            isQuietHours(rem.quietHoursEnabled, rem.quietHoursStart || '22:00', rem.quietHoursEnd || '07:00', rem.timezone || DEFAULT_TIMEZONE, now)
           )) {
             return false;
           }
@@ -405,7 +406,7 @@ export async function processAllPushNotifications(force = false): Promise<{
           if (!sub.reminderNotificationsEnabled) return false;
           if (!force && (
             isQuietHours(sub.quietHoursEnabled, sub.quietHoursStart, sub.quietHoursEnd, sub.timezone, now) ||
-            isQuietHours(rem.quietHoursEnabled, rem.quietHoursStart || '22:00', rem.quietHoursEnd || '07:00', rem.timezone || 'Asia/Kolkata', now)
+            isQuietHours(rem.quietHoursEnabled, rem.quietHoursStart || '22:00', rem.quietHoursEnd || '07:00', rem.timezone || DEFAULT_TIMEZONE, now)
           )) {
             return false;
           }

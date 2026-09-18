@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { updatePushSettings } from '@/lib/pushService';
 import { sanitizeErrorResponse } from '@/lib/auth';
+import { DEFAULT_TIMEZONE } from '@/lib/dateUtils';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,7 +20,7 @@ export async function GET() {
       quietHoursEnabled: sub ? sub.quietHoursEnabled : false,
       quietHoursStart: sub ? sub.quietHoursStart : '22:00',
       quietHoursEnd: sub ? sub.quietHoursEnd : '07:00',
-      timezone: sub ? sub.timezone : 'Asia/Kolkata',
+      timezone: sub ? sub.timezone : DEFAULT_TIMEZONE,
       hasSubscription: !!sub,
       vapidPublicKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || '',
     });

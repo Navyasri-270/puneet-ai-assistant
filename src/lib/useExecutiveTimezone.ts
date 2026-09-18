@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { getUserTimezone, getGreetingForTimezone, setUserTimezone } from './dateUtils';
+import { getUserTimezone, getGreetingForTimezone, setUserTimezone, DEFAULT_TIMEZONE } from './dateUtils';
 
 /**
  * Hook to detect whether component has mounted on client-side.
@@ -20,7 +20,7 @@ export function useMounted(): boolean {
  */
 export function useExecutiveTimezone() {
   const mounted = useMounted();
-  const [timezone, setTimezoneState] = useState<string>('Asia/Kolkata');
+  const [timezone, setTimezoneState] = useState<string>(DEFAULT_TIMEZONE);
   const [greeting, setGreeting] = useState<string>('Good Morning');
 
   const refreshTimezoneAndGreeting = useCallback(() => {

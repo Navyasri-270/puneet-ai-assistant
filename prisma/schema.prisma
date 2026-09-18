@@ -55,7 +55,7 @@ model Reminder {
   quietHoursEnabled           Boolean   @default(false)
   quietHoursStart             String?   @default("22:00")
   quietHoursEnd               String?   @default("07:00")
-  timezone                    String?   @default("Asia/Kolkata")
+  timezone                    String?   @default("Asia/Dubai")
   beforeNotifiedAt            DateTime?
   dueNotifiedAt               DateTime?
   overdueNotifiedAt           DateTime?

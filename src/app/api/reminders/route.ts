@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getReminders, createReminder } from '@/lib/taskStore';
 import { validateExecutiveAuth, sanitizeErrorResponse } from '@/lib/auth';
+import { DEFAULT_TIMEZONE } from '@/lib/dateUtils';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,7 +57,7 @@ export async function POST(req: NextRequest) {
       quietHoursEnabled: quietHoursEnabled !== undefined ? Boolean(quietHoursEnabled) : false,
       quietHoursStart: quietHoursStart || '22:00',
       quietHoursEnd: quietHoursEnd || '07:00',
-      timezone: timezone || 'Asia/Kolkata',
+      timezone: timezone || DEFAULT_TIMEZONE,
     });
 
     return NextResponse.json({ success: true, reminder }, { status: 201 });
