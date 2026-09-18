@@ -1,7 +1,21 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Bell, BellOff, CheckCircle2, AlertCircle, RefreshCw, Send, Moon, Calendar, CheckSquare } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { 
+  Bell, 
+  BellOff, 
+  CheckCircle2, 
+  AlertCircle, 
+  RefreshCw, 
+  Send, 
+  Moon, 
+  Calendar, 
+  CheckSquare,
+  Shield,
+  Smartphone,
+  Info
+} from 'lucide-react';
+import { useMounted } from '@/lib/useExecutiveTimezone';
 
 function urlBase64ToUint8Array(base64String: string) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -15,6 +29,8 @@ function urlBase64ToUint8Array(base64String: string) {
 }
 
 export default function PushRegister() {
+  const mounted = useMounted();
+
   const [supported, setSupported] = useState(false);
   const [subscribed, setSubscribed] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -31,33 +47,14 @@ export default function PushRegister() {
   const [fetchedVapidKey, setFetchedVapidKey] = useState<string>('');
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-  useEffect(() => {
-    if (typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window) {
-      setSupported(true);
-      ensureServiceWorkerRegistered().then(() => {
-        checkExistingSubscription();
-        fetchSettings();
-      });
-    } else {
-      setSupported(false);
-    }
-  }, []);
+  // Status Panel States
+  const [permissionStatus, setPermissionStatus] = useState<string>('Checking...');
+  const [swStatus, setSwStatus] = useState<string>('Checking...');
+  const [subStatus, setSubStatus] = useState<string>('Checking...');
+  const [testStatus, setTestStatus] = useState<string>('Not tested');
+  const [lastErrorMsg, setLastErrorMsg] = useState<string | null>(null);
 
-  const ensureServiceWorkerRegistered = async () => {
-    try {
-      if ('serviceWorker' in navigator) {
-        const reg = await navigator.serviceWorker.getRegistration();
-        if (!reg) {
-          await navigator.serviceWorker.register('/sw.js');
-        }
-      }
-    } catch (e: any) {
-      console.warn('Service worker registration attempt error:', e);
-      throw new Error(`Service Worker registration failed: ${e.message || 'sw.js could not be loaded'}`);
-    }
-  };
-
-  const fetchSettings = async () => {
+  const fetchSettings = useCallback(async () => {
     try {
       const res = await fetch('/api/push/settings');
       if (res.ok) {
@@ -73,20 +70,93 @@ export default function PushRegister() {
           setFetchedVapidKey(data.vapidPublicKey);
         }
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Error fetching push settings:', e);
+    }
+  }, []);
+
+  const checkExistingStatus = useCallback(async () => {
+    if (typeof window === 'undefined') return;
+
+    // 1. Permission Status
+    if ('Notification' in window) {
+      const perm = Notification.permission;
+      if (perm === 'granted') setPermissionStatus('Granted');
+      else if (perm === 'denied') setPermissionStatus('Denied');
+      else setPermissionStatus('Not requested');
+    } else {
+      setPermissionStatus('Unsupported');
+    }
+
+    // 2. Service Worker Status
+    if ('serviceWorker' in navigator) {
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg) {
+          setSwStatus('Registered');
+        } else {
+          setSwStatus('Not registered');
+        }
+      } catch (err) {
+        setSwStatus('Failed');
+      }
+    } else {
+      setSwStatus('Unsupported');
+    }
+
+    // 3. Push Subscription Status
+    if ('serviceWorker' in navigator && 'PushManager' in window) {
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) {
+          setSubscribed(true);
+          setSubStatus('Active');
+        } else {
+          setSubscribed(false);
+          setSubStatus('Missing');
+        }
+      } catch (err) {
+        setSubscribed(false);
+        setSubStatus('Missing');
+      }
+    } else {
+      setSubStatus('Unsupported');
+    }
+  }, []);
+
+  const ensureServiceWorkerRegistered = async () => {
+    try {
+      if ('serviceWorker' in navigator) {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (!reg) {
+          await navigator.serviceWorker.register('/sw.js');
+        }
+        setSwStatus('Registered');
+      }
+    } catch (e: any) {
+      setSwStatus('Failed');
+      setLastErrorMsg(`Service Worker registration failed: ${e.message || 'sw.js could not be loaded'}`);
+      throw new Error(`Service Worker registration failed: ${e.message || 'sw.js could not be loaded'}`);
     }
   };
 
-  const checkExistingSubscription = async () => {
-    try {
-      const reg = await navigator.serviceWorker.ready;
-      const sub = await reg.pushManager.getSubscription();
-      setSubscribed(!!sub);
-    } catch (e) {
-      console.error('Error checking push subscription:', e);
+  useEffect(() => {
+    if (!mounted) return;
+
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window) {
+      setSupported(true);
+      ensureServiceWorkerRegistered().then(() => {
+        checkExistingStatus();
+        fetchSettings();
+      });
+    } else {
+      setSupported(false);
+      setPermissionStatus('Unsupported');
+      setSwStatus('Unsupported');
+      setSubStatus('Unsupported');
     }
-  };
+  }, [mounted, checkExistingStatus, fetchSettings]);
 
   const saveSettings = async (updates: Record<string, any>) => {
     try {
@@ -110,14 +180,16 @@ export default function PushRegister() {
       if (res.ok) {
         setMessage({ text: 'Notification preferences updated successfully.', type: 'success' });
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Error updating settings:', e);
+      setLastErrorMsg(e.message || 'Failed to save settings');
     }
   };
 
   const handleSubscribe = async () => {
     setLoading(true);
     setMessage(null);
+    setLastErrorMsg(null);
 
     try {
       // Stage 1: Browser Support Check
@@ -127,14 +199,18 @@ export default function PushRegister() {
 
       // Stage 2: Notification Permission Request
       if (Notification.permission === 'denied') {
+        setPermissionStatus('Denied');
         throw new Error('Notification permission was blocked in your browser settings. Please click the lock icon in your browser address bar and set Notifications to "Allow".');
       }
 
       if (Notification.permission !== 'granted') {
         const permission = await Notification.requestPermission();
+        setPermissionStatus(permission === 'granted' ? 'Granted' : permission === 'denied' ? 'Denied' : 'Not requested');
         if (permission !== 'granted') {
           throw new Error('Notification permission was denied by user.');
         }
+      } else {
+        setPermissionStatus('Granted');
       }
 
       // Stage 3: VAPID Public Key Verification
@@ -177,10 +253,13 @@ export default function PushRegister() {
       }
 
       setSubscribed(true);
+      setSubStatus('Active');
       setMessage({ text: '✓ Mobile Push Notifications registered successfully! Device saved to database.', type: 'success' });
     } catch (err: any) {
       console.error('Push registration error:', err);
-      setMessage({ text: `❌ Enable Notifications Error: ${err.message || 'Failed to subscribe to push notifications.'}`, type: 'error' });
+      const errText = err.message || 'Failed to subscribe to push notifications.';
+      setLastErrorMsg(errText);
+      setMessage({ text: `❌ Enable Notifications Error: ${errText}`, type: 'error' });
     } finally {
       setLoading(false);
     }
@@ -189,21 +268,44 @@ export default function PushRegister() {
   const handleTestNotification = async () => {
     setLoading(true);
     setMessage(null);
+    setTestStatus('Sending...');
+    setLastErrorMsg(null);
+
     try {
+      // Direct call to POST /api/push/test
       const res = await fetch('/api/push/test', { method: 'POST' });
       const data = await res.json();
 
       if (res.ok && data.success) {
+        setTestStatus('Sent successfully');
         setMessage({ text: data.message || '✓ Test Web Push notification delivered!', type: 'success' });
       } else {
-        setMessage({ text: `❌ Test Push Error: ${data.error || 'Failed to send test notification'}`, type: 'error' });
+        const errorText = data.error || 'Failed to send test notification';
+        setTestStatus('Failed');
+        setLastErrorMsg(errorText);
+        setMessage({ text: `❌ Test Push Error: ${errorText}`, type: 'error' });
       }
     } catch (e: any) {
-      setMessage({ text: `❌ Test Push Error: ${e.message || 'Failed to send test notification.'}`, type: 'error' });
+      const errorText = e.message || 'Failed to send test notification.';
+      setTestStatus('Failed');
+      setLastErrorMsg(errorText);
+      setMessage({ text: `❌ Test Push Error: ${errorText}`, type: 'error' });
     } finally {
       setLoading(false);
     }
   };
+
+  // 1. SSR / Hydration Loading Guard (Identical Server & First Client Render)
+  if (!mounted) {
+    return (
+      <div className="p-4 bg-slate-800/40 border border-slate-700/50 rounded-xl flex items-center justify-between text-slate-400 text-xs">
+        <div className="flex items-center gap-2">
+          <RefreshCw className="w-4 h-4 animate-spin text-indigo-400" />
+          <span>Loading Push Notification Controls...</span>
+        </div>
+      </div>
+    );
+  }
 
   const activeVapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || fetchedVapidKey;
 
@@ -295,6 +397,68 @@ export default function PushRegister() {
             Send Test Push
           </button>
         </div>
+      </div>
+
+      {/* Visible Push Diagnostic Status Panel (Manual Test without DevTools) */}
+      <div className="p-4 bg-slate-800/60 border border-slate-700/60 rounded-xl space-y-3">
+        <div className="flex items-center justify-between border-b border-slate-700/50 pb-2">
+          <h5 className="text-xs font-semibold text-slate-300 flex items-center gap-1.5 uppercase tracking-wider">
+            <Shield className="w-3.5 h-3.5 text-indigo-400" />
+            Push System Diagnostics & Status
+          </h5>
+          <span className="text-[10px] text-slate-400 flex items-center gap-1">
+            <Info className="w-3 h-3 text-slate-400" /> Real-time status
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          <div className="bg-slate-900/60 p-2.5 rounded-lg border border-slate-700/40">
+            <span className="text-[10px] text-slate-400 block mb-0.5">Notification Permission</span>
+            <span className={`font-semibold ${
+              permissionStatus === 'Granted' ? 'text-emerald-400' :
+              permissionStatus === 'Denied' ? 'text-rose-400' : 'text-amber-400'
+            }`}>
+              {permissionStatus}
+            </span>
+          </div>
+
+          <div className="bg-slate-900/60 p-2.5 rounded-lg border border-slate-700/40">
+            <span className="text-[10px] text-slate-400 block mb-0.5">Service Worker</span>
+            <span className={`font-semibold ${
+              swStatus === 'Registered' ? 'text-emerald-400' :
+              swStatus === 'Failed' ? 'text-rose-400' : 'text-amber-400'
+            }`}>
+              {swStatus}
+            </span>
+          </div>
+
+          <div className="bg-slate-900/60 p-2.5 rounded-lg border border-slate-700/40">
+            <span className="text-[10px] text-slate-400 block mb-0.5">Push Subscription</span>
+            <span className={`font-semibold ${
+              subStatus === 'Active' ? 'text-emerald-400' : 'text-slate-400'
+            }`}>
+              {subStatus}
+            </span>
+          </div>
+
+          <div className="bg-slate-900/60 p-2.5 rounded-lg border border-slate-700/40">
+            <span className="text-[10px] text-slate-400 block mb-0.5">Test Notification</span>
+            <span className={`font-semibold ${
+              testStatus === 'Sent successfully' ? 'text-emerald-400' :
+              testStatus === 'Failed' ? 'text-rose-400' :
+              testStatus === 'Sending...' ? 'text-indigo-400 animate-pulse' : 'text-slate-400'
+            }`}>
+              {testStatus}
+            </span>
+          </div>
+        </div>
+
+        {lastErrorMsg && (
+          <div className="p-2.5 bg-rose-500/10 border border-rose-500/20 rounded-lg text-rose-400 text-[11px] font-mono break-all flex items-start gap-1.5">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-rose-400" />
+            <span><strong>Last Error:</strong> {lastErrorMsg}</span>
+          </div>
+        )}
       </div>
 
       {/* Extended Notification Controls */}
