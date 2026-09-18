@@ -46,3 +46,5 @@ prisma/production_migration_dump.json
 .env
 .env.local
 .env.*.local
+.vercel
+.env*
