@@ -367,7 +367,7 @@ export async function syncTaskToOutlook(taskId: string): Promise<{ success: bool
     if (!token) {
       await prisma.task.update({
         where: { id: taskId },
-        data: { outlookSyncStatus: 'Pending', outlookSyncError: 'Outlook account is not connected' }
+        data: { outlookSyncStatus: 'Failed', outlookSyncError: 'Outlook account is not connected' }
       });
       return { success: false, error: 'Outlook account is not connected' };
     }
@@ -452,7 +452,7 @@ export async function syncReminderToOutlook(reminderId: string): Promise<{ succe
     if (!token) {
       await prisma.reminder.update({
         where: { id: reminderId },
-        data: { outlookSyncStatus: 'Pending', outlookSyncError: 'Outlook account is not connected' }
+        data: { outlookSyncStatus: 'Failed', outlookSyncError: 'Outlook account is not connected' }
       });
       return { success: false, error: 'Outlook account is not connected' };
     }
@@ -521,7 +521,7 @@ export async function syncCalendarEventToOutlook(eventId: string): Promise<{ suc
     if (!token) {
       await prisma.calendarEvent.update({
         where: { id: eventId },
-        data: { outlookSyncStatus: 'Pending', outlookSyncError: 'Outlook account is not connected' }
+        data: { outlookSyncStatus: 'Failed', outlookSyncError: 'Outlook account is not connected' }
       });
       return { success: false, error: 'Outlook account is not connected' };
     }

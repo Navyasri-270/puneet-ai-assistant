@@ -11,19 +11,106 @@ export interface AIActionResponse {
   isFallbackEngine?: boolean;
 }
 
+export function parseNaturalDateTimeAndDetails(prompt: string) {
+  const lower = prompt.toLowerCase().trim();
+  const now = new Date();
+  const todayStr = now.toISOString().split('T')[0];
+
+  // 1. EXTRACT DATE
+  let extractedDate = todayStr;
+
+  const isoMatch = prompt.match(/\b(\d{4}-\d{2}-\d{2})\b/);
+  if (isoMatch) {
+    extractedDate = isoMatch[1];
+  } else if (/\btomorrow\b/i.test(prompt)) {
+    const d = new Date(now);
+    d.setDate(d.getDate() + 1);
+    extractedDate = d.toISOString().split('T')[0];
+  } else if (/\btoday\b|\btonight\b/i.test(prompt)) {
+    extractedDate = todayStr;
+  } else {
+    // Check days of week
+    const daysOfWeek = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const dayMatch = lower.match(/\b(next\s+|this\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i);
+    if (dayMatch) {
+      const targetDayName = dayMatch[2].toLowerCase();
+      const targetDayIndex = daysOfWeek.indexOf(targetDayName);
+      if (targetDayIndex !== -1) {
+        const d = new Date(now);
+        let diff = targetDayIndex - d.getDay();
+        if (diff <= 0) diff += 7;
+        d.setDate(d.getDate() + diff);
+        extractedDate = d.toISOString().split('T')[0];
+      }
+    } else {
+      // Month-day patterns ("September 25", "Sep 25th", "25th September", "25 Sep")
+      const monthNames = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+      const shortMonthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+      const monthDayMatch = lower.match(/\b(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+(\d{1,2})(?:st|nd|rd|th)?\b/i);
+      const dayMonthMatch = lower.match(/\b(\d{1,2})(?:st|nd|rd|th)?\s+(of\s+)?(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i);
+
+      if (monthDayMatch) {
+        const mStr = monthDayMatch[1].toLowerCase();
+        let monthIndex = monthNames.indexOf(mStr);
+        if (monthIndex === -1) monthIndex = shortMonthNames.indexOf(mStr);
+        const dayNum = parseInt(monthDayMatch[2], 10);
+        if (monthIndex !== -1 && dayNum >= 1 && dayNum <= 31) {
+          const d = new Date(now.getFullYear(), monthIndex, dayNum);
+          if (d < now) d.setFullYear(now.getFullYear() + 1);
+          extractedDate = d.toISOString().split('T')[0];
+        }
+      } else if (dayMonthMatch) {
+        const dayNum = parseInt(dayMonthMatch[1], 10);
+        const mStr = dayMonthMatch[3].toLowerCase();
+        let monthIndex = monthNames.indexOf(mStr);
+        if (monthIndex === -1) monthIndex = shortMonthNames.indexOf(mStr);
+        if (monthIndex !== -1 && dayNum >= 1 && dayNum <= 31) {
+          const d = new Date(now.getFullYear(), monthIndex, dayNum);
+          if (d < now) d.setFullYear(now.getFullYear() + 1);
+          extractedDate = d.toISOString().split('T')[0];
+        }
+      }
+    }
+  }
+
+  // 2. EXTRACT TIME
+  let extractedTime = "10:00 AM";
+  const timeMatch = prompt.match(/\bat\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\b/i) || prompt.match(/\b(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/i);
+  if (timeMatch) {
+    let tStr = timeMatch[1].toUpperCase().trim();
+    if (!tStr.includes('AM') && !tStr.includes('PM')) {
+      const num = parseInt(tStr, 10);
+      if (num >= 1 && num <= 7) tStr += " PM";
+      else tStr += " AM";
+    }
+    extractedTime = tStr;
+  }
+
+  // 3. EXTRACT REASON / DESCRIPTION / DURATION
+  let duration = "30 mins";
+  const durationMatch = lower.match(/\bfor\s+(\d+)\s+(hour|hours|hr|hrs|min|mins|minutes)\b/i);
+  if (durationMatch) {
+    duration = `${durationMatch[1]} ${durationMatch[2]}`;
+  }
+
+  let description = "";
+  const reasonMatch = prompt.match(/\b(to discuss|regarding|about|for|to review|to follow up on)\s+([^.,;]+)/i);
+  if (reasonMatch) {
+    description = reasonMatch[0].trim();
+  }
+
+  return {
+    date: extractedDate,
+    time: extractedTime,
+    duration,
+    description
+  };
+}
+
 export function parseNaturalLanguageRequest(prompt: string, existingTasks: TaskItem[]): AIActionResponse {
   const lower = prompt.toLowerCase().trim();
-  const todayStr = new Date().toISOString().split('T')[0];
-  
-  // Calculate relative dates (tomorrow, next Monday, etc.)
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowStr = tomorrow.toISOString().split('T')[0];
-
-  const friday = new Date();
-  const daysUntilFriday = (5 - friday.getDay() + 7) % 7 || 7;
-  friday.setDate(friday.getDate() + daysUntilFriday);
-  const fridayStr = friday.toISOString().split('T')[0];
+  const parsedDetails = parseNaturalDateTimeAndDetails(prompt);
 
   // 0000. PUSH NOTIFICATION FREQUENCY INTENT
   if (lower.includes('remind me every') || lower.includes('notification frequency') || lower.includes('push notifications every')) {
@@ -42,91 +129,65 @@ export function parseNaturalLanguageRequest(prompt: string, existingTasks: TaskI
   }
 
   // 000. REMINDER INTENTS
-  // A. CREATE REMINDER
   if (lower.startsWith('remind me') || lower.startsWith('create reminder') || lower.startsWith('set reminder') || lower.startsWith('add reminder')) {
-    let reminderText = prompt.replace(/^(remind me\s+to\b|remind me\s+about\b|remind me\b|create reminder\b|set reminder\b|add reminder\b)\s*/i, '').trim();
-
-    const targetTime = new Date();
-    const inHoursMatch = lower.match(/\bin\s+(\d+)\s+hour(s)?\b/i);
-    const inMinsMatch = lower.match(/\bin\s+(\d+)\s+min(s|ute|utes)?\b/i);
-
-    if (inHoursMatch) {
-      targetTime.setHours(targetTime.getHours() + parseInt(inHoursMatch[1], 10));
-    } else if (inMinsMatch) {
-      targetTime.setMinutes(targetTime.getMinutes() + parseInt(inMinsMatch[1], 10));
-    } else {
-      if (/\btomorrow\b/i.test(prompt)) {
-        targetTime.setDate(targetTime.getDate() + 1);
-      } else if (/\bfriday\b/i.test(prompt)) {
-        const daysUntilFriday = (5 - targetTime.getDay() + 7) % 7 || 7;
-        targetTime.setDate(targetTime.getDate() + daysUntilFriday);
-      }
-
-      const timeMatch = prompt.match(/\bat\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\b/i) || prompt.match(/\b(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/i);
-      if (timeMatch) {
-        let tStr = timeMatch[1].toUpperCase().trim();
-        let hours = 10;
-        let mins = 0;
-        if (tStr.includes('PM')) {
-          const h = parseInt(tStr.replace('PM', '').trim(), 10);
-          hours = h === 12 ? 12 : h + 12;
-        } else if (tStr.includes('AM')) {
-          const h = parseInt(tStr.replace('AM', '').trim(), 10);
-          hours = h === 12 ? 0 : h;
-        }
-        targetTime.setHours(hours, mins, 0, 0);
-      } else {
-        targetTime.setHours(10, 0, 0, 0);
-      }
-    }
-
-    let title = reminderText
-      .replace(/\bin\s+\d+\s+hour(s)?\b/gi, '')
-      .replace(/\bin\s+\d+\s+min(s|ute|utes)?\b/gi, '')
-      .replace(/\bby tomorrow\b|\btomorrow\b|\btoday\b|\bfriday\b/gi, '')
+    let reminderText = prompt
+      .replace(/^(remind me\s+to\b|remind me\s+about\b|remind me\b|create reminder\b|set reminder\b|add reminder\b)\s*/i, '')
       .replace(/\bat\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b|\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/gi, '')
+      .replace(/\btomorrow\b|\btoday\b|\bnext\s+\w+|\b(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+\d{1,2}(?:st|nd|rd|th)?/gi, '')
       .replace(/^\s*(to|about|for|at|on)\s+/i, '')
+      .replace(/\s+/g, ' ')
       .trim();
 
-    if (title.endsWith('.')) title = title.slice(0, -1);
-    if (title.length < 2) title = "Executive Reminder";
-    title = title.charAt(0).toUpperCase() + title.slice(1);
+    if (reminderText.endsWith('.')) reminderText = reminderText.slice(0, -1);
+    if (reminderText.length < 2) reminderText = "Executive Reminder";
+    reminderText = reminderText.charAt(0).toUpperCase() + reminderText.slice(1);
+
+    const rTime = new Date(`${parsedDetails.date}T10:00:00.000Z`);
+    const timeMatch = parsedDetails.time.match(/(\d{1,2})(?::(\d{2}))?\s*(AM|PM)/i);
+    if (timeMatch) {
+      let hours = parseInt(timeMatch[1], 10);
+      const mins = timeMatch[2] ? parseInt(timeMatch[2], 10) : 0;
+      const ampm = timeMatch[3].toUpperCase();
+      if (ampm === 'PM' && hours < 12) hours += 12;
+      if (ampm === 'AM' && hours === 12) hours = 0;
+      rTime.setUTCHours(hours, mins, 0, 0);
+    }
 
     const matchingTask = existingTasks.find(t => 
       t.status !== 'Completed' && (
-        title.toLowerCase().includes(t.title.toLowerCase()) || 
-        t.title.toLowerCase().includes(title.toLowerCase())
+        reminderText.toLowerCase().includes(t.title.toLowerCase()) || 
+        t.title.toLowerCase().includes(reminderText.toLowerCase())
       )
     );
 
     return {
       intent: 'create_reminder',
-      actionSummary: `Set reminder "${title}"`,
+      actionSummary: `Set reminder "${reminderText}" for ${parsedDetails.date} at ${parsedDetails.time}`,
+      requiresConfirmation: true,
+      confirmationMessage: `Create this reminder?\n\n• Title: ${reminderText}\n• Date: ${parsedDetails.date}\n• Time: ${parsedDetails.time}`,
       data: {
-        title,
-        reminderTime: targetTime.toISOString(),
+        title: reminderText,
+        reminderTime: rTime.toISOString(),
         taskId: matchingTask ? matchingTask.id : undefined
       },
       isFallbackEngine: true
     };
   }
 
-  // B. CANCEL REMINDER
-  if (lower.startsWith('cancel reminder') || lower.startsWith('delete reminder') || lower.includes('cancel my reminder') || lower.includes('delete my reminder')) {
+  // CANCEL REMINDER
+  if (lower.startsWith('cancel reminder') || lower.startsWith('delete reminder') || lower.includes('cancel my reminder')) {
     let query = prompt.replace(/^(cancel my reminder about|cancel reminder about|cancel reminder|delete reminder|remove reminder)\s*/i, '').trim();
     if (query.endsWith('.')) query = query.slice(0, -1);
 
     return {
       intent: 'cancel_reminder',
       actionSummary: `Request to cancel reminder regarding "${query}"`,
-      data: {
-        query
-      },
+      data: { query },
       isFallbackEngine: true
     };
   }
 
-  // C. LIST REMINDERS
+  // LIST REMINDERS
   if (lower.includes('reminders') && (lower.includes('show') || lower.includes('list') || lower.includes('what') || lower.includes('view') || lower.includes('my'))) {
     let filter = 'all';
     if (lower.includes('today')) filter = 'today';
@@ -135,276 +196,96 @@ export function parseNaturalLanguageRequest(prompt: string, existingTasks: TaskI
     return {
       intent: 'list_reminders',
       actionSummary: `Queried reminders [Filter: ${filter}]`,
-      data: {
-        filter
-      },
+      data: { filter },
       isFallbackEngine: true
     };
   }
 
-  // 00. MEMORY INTENTS
-  // A. SAVE MEMORY
-  if (lower.startsWith('remember') || lower.includes('save this as a preference') || lower.includes('save preference') || lower.startsWith('save memory')) {
-    let rawText = prompt.replace(/^(remember that|remember|save this as a preference:?|save preference:?|save memory:?)\s*/i, '').trim();
+  // MEMORY INTENTS
+  if (lower.startsWith('remember') || lower.includes('save this as a preference') || lower.includes('save preference')) {
+    let rawText = prompt.replace(/^(remember that|remember|save this as a preference:?|save preference:?)\s*/i, '').trim();
     if (rawText.endsWith('.')) rawText = rawText.slice(0, -1);
-
-    let category = "Preferences";
-    let key = "Executive Preference";
-    let value = rawText;
-
-    if (/concise|email|communication|report/i.test(rawText)) {
-      category = "Communication";
-      key = "Email Style & Communication";
-      value = "Prefer concise emails";
-    } else if (/priority client|client|apex|dubai/i.test(rawText)) {
-      category = "Clients";
-      key = rawText.toLowerCase().includes('apex') ? "Apex Holdings Priority" : "Priority Client";
-      value = rawText;
-    } else if (/meeting|3 PM|after 3|duration|time/i.test(rawText)) {
-      category = "Preferences";
-      key = "Meeting Scheduling Preference";
-      value = rawText;
-    } else {
-      key = rawText.length > 30 ? rawText.substring(0, 30) + '...' : rawText;
-    }
 
     return {
       intent: 'save_memory',
-      actionSummary: `Saved to Executive Memory: "${key}"`,
+      actionSummary: `Saved to Executive Memory: "${rawText.substring(0, 30)}"`,
       requiresConfirmation: false,
-      confirmationMessage: `Saved to Executive Memory [Category: ${category}].`,
-      data: {
-        key,
-        value,
-        category
-      },
-      isFallbackEngine: true
-    };
-  }
-
-  // B. FORGET MEMORY
-  if (lower.startsWith('forget') || lower.startsWith('delete memory') || lower.startsWith('remove memory')) {
-    let target = prompt.replace(/^(forget that|forget the preference about|forget|delete memory|remove memory)\s*/i, '').trim();
-    if (target.endsWith('.')) target = target.slice(0, -1);
-
-    return {
-      intent: 'forget_memory',
-      actionSummary: `Request to forget memory regarding "${target}"`,
-      data: {
-        targetQuery: target
-      },
-      isFallbackEngine: true
-    };
-  }
-
-  // C. LIST / QUERY MEMORIES
-  if (lower.includes('what do you remember') || lower.startsWith('show memories') || lower.startsWith('list memories') || lower.includes('remember about')) {
-    let queryTerm = prompt.replace(/^(what do you remember about|what do you remember|show memories about|list memories about|show me what you remember about)\s*/i, '').trim();
-    if (queryTerm.endsWith('?')) queryTerm = queryTerm.slice(0, -1);
-
-    return {
-      intent: 'list_memories',
-      actionSummary: `Queried memories regarding "${queryTerm}"`,
-      data: {
-        queryTerm
-      },
+      confirmationMessage: `Saved to Executive Memory.`,
+      data: { key: rawText.substring(0, 30), value: rawText, category: 'Preferences' },
       isFallbackEngine: true
     };
   }
 
   // 0. CREATE CALENDAR EVENT INTENT (Outlook / Local Calendar)
   if (lower.startsWith('schedule') || lower.includes('schedule a meeting') || lower.includes('schedule a call') || lower.includes('calendar event')) {
-    const timeMatch = prompt.match(/\bat\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\b/i) || prompt.match(/\b(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/i);
-
-    let eventDate = todayStr;
-    if (/\btomorrow\b/i.test(prompt)) {
-      eventDate = tomorrowStr;
-    } else if (/\bfriday\b/i.test(prompt)) {
-      eventDate = fridayStr;
-    }
-
-    // Extract title
     let eventTitle = prompt
       .replace(/^(schedule a meeting|schedule meeting|schedule a call|schedule call|schedule a sync|schedule sync|schedule)\b\s*/i, '')
-      .replace(/\bby tomorrow\b|\btomorrow\b|\btoday\b|\btonight\b|\bfriday\b/gi, '')
       .replace(/\bat\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b|\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/gi, '')
+      .replace(/\btomorrow\b|\btoday\b|\bnext\s+\w+|\b(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+\d{1,2}(?:st|nd|rd|th)?/gi, '')
       .replace(/^\s*(with|for|at|on)\s+/i, '')
+      .replace(/\s+/g, ' ')
       .trim();
 
     if (eventTitle.length < 3) {
       eventTitle = "Executive Meeting";
     } else {
-      eventTitle = "Meeting with " + eventTitle.replace(/^meeting with /i, '');
+      if (!eventTitle.toLowerCase().startsWith('meeting with')) {
+        eventTitle = "Meeting with " + eventTitle;
+      }
       eventTitle = eventTitle.charAt(0).toUpperCase() + eventTitle.slice(1);
     }
-
-    if (!timeMatch) {
-      return {
-        intent: 'clarify',
-        actionSummary: `Calendar request received for "${eventTitle}". Start time missing.`,
-        clarificationQuestion: `What time should I schedule the meeting?`,
-        options: [
-          { id: '10:00 AM', title: '10:00 AM' },
-          { id: '01:00 PM', title: '01:00 PM' },
-          { id: '03:00 PM', title: '03:00 PM' },
-          { id: '04:00 PM', title: '04:00 PM' }
-        ],
-        data: {
-          pendingEvent: {
-            title: eventTitle,
-            date: eventDate
-          }
-        },
-        isFallbackEngine: true
-      };
-    }
-
-    let startTime = timeMatch[1].toUpperCase().trim();
-    if (!startTime.includes('AM') && !startTime.includes('PM')) {
-      startTime += " PM";
-    }
+    if (eventTitle.endsWith('.')) eventTitle = eventTitle.slice(0, -1);
 
     return {
       intent: 'create_calendar_event',
-      actionSummary: `Scheduled "${eventTitle}" for ${eventDate === todayStr ? 'Today' : 'Tomorrow'} at ${startTime}`,
+      actionSummary: `Scheduled "${eventTitle}" for ${parsedDetails.date} at ${parsedDetails.time}`,
+      requiresConfirmation: true,
+      confirmationMessage: `Schedule this meeting?\n\n• Title: ${eventTitle}\n• Date: ${parsedDetails.date}\n• Time: ${parsedDetails.time}\n• Description: ${parsedDetails.description || 'Executive Meeting'}`,
       data: {
         title: eventTitle,
-        date: eventDate,
-        startTime,
+        date: parsedDetails.date,
+        startTime: parsedDetails.time,
+        description: parsedDetails.description || 'Executive Meeting',
         location: "Executive Office / Online Sync",
         category: "Client Meeting",
-        isOutlook: lower.includes('outlook') || lower.includes('microsoft'),
+        isOutlook: true,
       },
       isFallbackEngine: true
     };
   }
 
   // 1. DRAFT EMAIL INTENT
-  if (lower.startsWith('draft an email') || lower.startsWith('draft email') || lower.startsWith('write an email') || lower.startsWith('write email') || lower.includes('draft an email') || lower.includes('draft email') || lower.includes('write an email')) {
-    let recipient = "";
-    let subject = "Executive Communication";
-
-    // Extract recipient if specified
-    const toMatch = prompt.match(/\bto\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|the\s+[a-z\s]+)/i);
-    if (toMatch) {
-      recipient = toMatch[1].trim();
-      if (recipient.toLowerCase().startsWith('the ')) {
-        recipient = recipient.charAt(0).toUpperCase() + recipient.slice(1);
-      }
-    } else if (lower.includes('john')) {
-      recipient = "John Miller";
-    } else if (lower.includes('dubai') || lower.includes('tariq')) {
-      recipient = "Tariq Al-Mansoor <tariq@dubaiholdings.ae>";
-    } else if (lower.includes('team')) {
-      recipient = "Team";
-    }
-
-    // Determine subject based on topic
-    if (lower.includes('proposal')) {
-      subject = "Update on Client Proposal & Strategic Next Steps";
-    } else if (lower.includes('dubai') || lower.includes('meeting')) {
-      subject = "Follow-up: Commercial Sync & Dubai Q4 Rollout";
-    } else if (lower.includes('thank') || lower.includes('project')) {
-      subject = "Thank You: Outstanding Effort on Project Completion";
-    } else {
-      subject = "Executive Update & Action Items";
-    }
-
-    const greeting = recipient ? `Hi ${recipient.split(' ')[0]}` : "Hello";
-    let bodyText = "";
-    if (lower.includes('proposal')) {
-      bodyText = `${greeting},\n\nI am writing to request a brief status update on the client proposal.\n\nCould you please share the current progress, key deliverables, and expected timeline for final review?\n\nBest regards,\nPuneet`;
-    } else if (lower.includes('thank') || lower.includes('project')) {
-      bodyText = `${greeting},\n\nI wanted to extend my sincere gratitude for your hard work and dedication in completing the project.\n\nYour efforts are greatly appreciated and contributed significantly to this milestone.\n\nBest regards,\nPuneet`;
-    } else {
-      bodyText = `${greeting},\n\nI am following up on our recent discussion regarding upcoming priorities and action items.\n\nPlease let me know your availability for a quick alignment call this week.\n\nBest regards,\nPuneet`;
-    }
+  if (lower.startsWith('draft an email') || lower.startsWith('draft email') || lower.startsWith('write an email')) {
+    let recipient = "Executive Contact";
+    const toMatch = prompt.match(/\bto\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i);
+    if (toMatch) recipient = toMatch[1].trim();
 
     return {
       intent: 'draft_email',
-      actionSummary: recipient ? `Prepared draft email for ${recipient}` : `Prepared draft email (Recipient required)`,
+      actionSummary: `Prepared draft email for ${recipient}`,
       requiresConfirmation: true,
-      confirmationMessage: recipient ? `Email draft created for ${recipient}.` : `Email draft created. Please add recipient in Email Assistant.`,
-      data: {
-        recipient: recipient || "",
-        subject,
-        body: bodyText
-      },
+      confirmationMessage: `Email draft created for ${recipient}.`,
+      data: { recipient, subject: "Executive Communication", body: "Please find the requested update attached." },
       isFallbackEngine: true
     };
   }
 
   // 2. COMPLETE TASK INTENT
-  if ((lower.includes('complete') && (lower.includes('task') || lower.includes('item') || lower.includes('proposal'))) || (lower.includes('mark') && lower.includes('completed')) || lower.startsWith('complete ') || lower.startsWith('finish ')) {
-    const matchingTasks = existingTasks.filter(t => 
-      t.status !== 'Completed' && (
-        lower.includes(t.title.toLowerCase()) || 
-        t.title.toLowerCase().split(' ').some(word => word.length > 3 && lower.includes(word))
-      )
-    );
-
-    if (matchingTasks.length === 0) {
+  if (lower.includes('complete') && (lower.includes('task') || lower.includes('item'))) {
+    const matchingTasks = existingTasks.filter(t => t.status !== 'Completed' && lower.includes(t.title.toLowerCase()));
+    if (matchingTasks.length > 0) {
+      const target = matchingTasks[0];
       return {
-        intent: 'clarify',
-        actionSummary: 'Could not find matching active task to complete',
-        clarificationQuestion: 'I could not find an active task matching that description. Which task would you like to mark as completed?',
-        options: existingTasks.filter(t => t.status !== 'Completed').map(t => ({ id: t.id, title: t.title })),
-        isFallbackEngine: true
-      };
-    }
-
-    if (matchingTasks.length > 1) {
-      return {
-        intent: 'clarify',
-        actionSummary: 'Multiple matching tasks found',
-        clarificationQuestion: 'Which task would you like me to mark as completed?',
-        options: matchingTasks.map(t => ({ id: t.id, title: t.title })),
-        isFallbackEngine: true
-      };
-    }
-
-    const target = matchingTasks[0];
-    return {
-      intent: 'complete_task',
-      actionSummary: `Marked "${target.title}" as completed`,
-      data: { taskId: target.id, taskTitle: target.title },
-      isFallbackEngine: true
-    };
-  }
-
-  // 3. UPDATE / MOVE TASK INTENT
-  if (lower.startsWith('move') || lower.includes('reschedule') || lower.includes('postpone')) {
-    const proposalTasks = existingTasks.filter(t => lower.includes('proposal') && t.title.toLowerCase().includes('proposal'));
-    if (proposalTasks.length > 1) {
-      return {
-        intent: 'clarify',
-        actionSummary: 'Multiple proposal tasks detected',
-        clarificationQuestion: 'Which proposal task would you like me to move?',
-        options: proposalTasks.map(t => ({ id: t.id, title: t.title })),
-        isFallbackEngine: true
-      };
-    }
-
-    const matching = existingTasks.find(t => 
-      lower.includes(t.title.toLowerCase()) || 
-      t.title.toLowerCase().split(' ').some(w => w.length > 3 && lower.includes(w))
-    );
-
-    const targetDate = lower.includes('friday') ? fridayStr : lower.includes('tomorrow') ? tomorrowStr : fridayStr;
-    const dateLabel = lower.includes('friday') ? 'Friday' : 'tomorrow';
-
-    if (matching) {
-      return {
-        intent: 'update_task',
-        actionSummary: `Moved "${matching.title}" to ${dateLabel} (${targetDate})`,
-        data: { taskId: matching.id, taskTitle: matching.title, updates: { dueDate: targetDate } },
+        intent: 'complete_task',
+        actionSummary: `Marked "${target.title}" as completed`,
+        data: { taskId: target.id, taskTitle: target.title },
         isFallbackEngine: true
       };
     }
   }
 
-  // 4. SUMMARIZE / MORNING BRIEFING / WHAT SHOULD I FOCUS ON INTENT
-  if (lower.includes('morning briefing') || lower.includes('what\'s important today') || lower.includes('what is important today') || lower.includes('important today') || lower.includes('what should i focus on today') || lower.includes('summarize my day') || lower.includes('what do i need to do') || lower.includes('daily briefing') || lower.includes('summary')) {
+  // 3. MORNING BRIEFING
+  if (lower.includes('briefing') || lower.includes('summarize my day') || lower.includes('what should i focus on')) {
     return {
       intent: 'summarize_tasks',
       actionSummary: 'Generated Executive Daily AI Briefing',
@@ -413,177 +294,44 @@ export function parseNaturalLanguageRequest(prompt: string, existingTasks: TaskI
     };
   }
 
-  if (lower.includes('overdue')) {
-    return {
-      intent: 'list_tasks',
-      actionSummary: 'Filtered overdue tasks',
-      data: { filter: 'overdue' },
-      isFallbackEngine: true
-    };
-  }
-
-  // 5. CREATE TASK INTENT (Explicit task creation requests only)
-  const isExplicitTaskRequest = 
-    /^(create|add|new|schedule|set|remind|todo|remember|put|make)\b/i.test(lower) ||
-    /\b(create task|add task|new task|todo|remind me to|schedule task|set reminder|create a task|add a task|create reminder|task for|tasks for)\b/i.test(lower);
-
-  if (!isExplicitTaskRequest) {
-    return {
-      intent: 'general',
-      actionSummary: 'Processed chat response without creating task',
-      data: {
-        type: 'chat',
-        title: prompt,
-        description: '',
-        date: todayStr,
-        time: '10:00 AM',
-        recurrence: 'none'
-      },
-      isFallbackEngine: true
-    };
-  }
-
-  // Check if multiple tasks requested explicitly
-  const isMultipleTasks = /\b(multiple tasks|several tasks|\d+\s+tasks)\b/i.test(lower) || (prompt.includes('\n') && (lower.includes('create tasks') || lower.includes('add tasks')));
-
-  let dueTime = "10:00 AM";
-  const timeMatch = prompt.match(/\bat\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\b/i) || 
-                    prompt.match(/\b(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/i);
-  if (timeMatch) {
-    let tStr = timeMatch[1].toUpperCase().trim();
-    if (!tStr.includes('AM') && !tStr.includes('PM')) {
-      tStr += " AM";
-    }
-    dueTime = tStr;
-  }
-
-  let dueDate = todayStr;
-  const isoDateMatch = prompt.match(/\b(\d{4}-\d{2}-\d{2})\b/);
-  if (isoDateMatch) {
-    dueDate = isoDateMatch[1];
-  } else if (/\btomorrow\b/i.test(prompt)) {
-    dueDate = tomorrowStr;
-  } else if (/\bfriday\b/i.test(prompt)) {
-    dueDate = fridayStr;
-  } else if (/\btoday\b/i.test(prompt) || /\btonight\b/i.test(prompt)) {
-    dueDate = todayStr;
-  }
-
-  let explicitPriority: string | null = null;
-  if (/\b(urgent|asap|critical|immediately)\b/i.test(lower)) {
-    explicitPriority = "Urgent";
-  } else if (/\b(high priority|high-priority|important)\b/i.test(lower) || /\bwith high priority\b/i.test(lower)) {
-    explicitPriority = "High";
-  } else if (/\b(medium priority|medium-priority)\b/i.test(lower) || /\bwith medium priority\b/i.test(lower)) {
-    explicitPriority = "Medium";
-  } else if (/\b(low priority|low-priority)\b/i.test(lower) || /\bwith low priority\b/i.test(lower)) {
-    explicitPriority = "Low";
-  }
-
-  let category = "General";
-  if (/\b(dubai|client|leads|lead)\b/i.test(lower)) {
-    category = "Clients";
-  } else if (/\b(presentation|board|cfo|executive)\b/i.test(lower)) {
-    category = "Executive";
-  } else if (/\b(proposal|strategy)\b/i.test(lower)) {
-    category = "Strategy";
-  }
-
-  let taskTitle = prompt;
-  taskTitle = taskTitle.replace(/^(remind me|create task|create a task|add task|add a task|schedule task|schedule a task)\b\s*/i, '');
-
-  taskTitle = taskTitle
-    .replace(/\bon\s+\d{4}-\d{2}-\d{2}\b/gi, '')
-    .replace(/\b\d{4}-\d{2}-\d{2}\b/gi, '')
-    .replace(/\bby tomorrow\b/gi, '')
-    .replace(/\bby friday\b/gi, '')
-    .replace(/\bby monday\b/gi, '')
-    .replace(/\btomorrow\b/gi, '')
-    .replace(/\btoday\b/gi, '')
-    .replace(/\btonight\b/gi, '')
-    .replace(/\bnext week\b/gi, '');
-
-  taskTitle = taskTitle
-    .replace(/\bat\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/gi, '')
-    .replace(/\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/gi, '');
-
-  taskTitle = taskTitle
-    .replace(/\bwith high priority\b/gi, '')
-    .replace(/\bhigh priority\b/gi, '')
-    .replace(/\bwith medium priority\b/gi, '')
-    .replace(/\bmedium priority\b/gi, '')
-    .replace(/\bwith low priority\b/gi, '')
-    .replace(/\blow priority\b/gi, '')
-    .replace(/\burgent\b/gi, '')
-    .replace(/\basap\b/gi, '')
-    .replace(/\bimportant\b/gi, '');
-
-  taskTitle = taskTitle
-    .replace(/^\s*(to|for|at|on)\s+/i, '')
+  // 4. CREATE TASK INTENT
+  let taskTitle = prompt
+    .replace(/^(create task|add task|new task|create a task|add a task|remind me to|remind me|todo)\b\s*/i, '')
+    .replace(/\bat\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b|\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/gi, '')
+    .replace(/\bon\s+(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+\d{1,2}(?:st|nd|rd|th)?/gi, '')
+    .replace(/\bby tomorrow\b|\btomorrow\b|\btoday\b|\btonight\b|\bnext\s+\w+/gi, '')
     .replace(/\s+/g, ' ')
     .trim();
 
-  if (taskTitle.length > 0) {
-    taskTitle = taskTitle.charAt(0).toUpperCase() + taskTitle.slice(1);
-  } else {
-    taskTitle = "Executive Action Item";
-  }
+  if (taskTitle.endsWith('.')) taskTitle = taskTitle.slice(0, -1);
+  if (taskTitle.length < 3) taskTitle = prompt.trim();
+  taskTitle = taskTitle.charAt(0).toUpperCase() + taskTitle.slice(1);
+
+  let explicitPriority = "Medium";
+  if (/\b(urgent|asap|critical)\b/i.test(lower)) explicitPriority = "Urgent";
+  else if (/\b(high priority|important)\b/i.test(lower)) explicitPriority = "High";
+  else if (/\b(low priority)\b/i.test(lower)) explicitPriority = "Low";
 
   const structuredIntent = {
     type: 'task',
     title: taskTitle,
-    description: '',
-    date: dueDate,
-    time: dueTime,
+    description: parsedDetails.description || '',
+    date: parsedDetails.date,
+    time: parsedDetails.time,
     recurrence: 'none',
-    priority: explicitPriority || 'Medium',
-    category,
+    priority: explicitPriority,
+    category: 'General',
     status: 'To Do'
   };
 
-  if (isMultipleTasks) {
-    return {
-      intent: 'clarify',
-      actionSummary: 'Multiple tasks detected in prompt. Confirmation requested.',
-      requiresConfirmation: true,
-      confirmationMessage: 'I detected a request for multiple tasks. Should I create all of them?',
-      data: {
-        structuredIntent,
-        pendingTask: structuredIntent
-      },
-      isFallbackEngine: true
-    };
-  }
-
-  if (!explicitPriority) {
-    const dateLabel = dueDate === todayStr ? 'Today' : 'Tomorrow';
-    return {
-      intent: 'clarify_priority' as any,
-      actionSummary: `Task details extracted for "${taskTitle}". Awaiting priority selection to create this task.`,
-      clarificationQuestion: `Create this task?\n\n• Title: ${taskTitle}\n• Schedule: ${dateLabel} at ${dueTime}\n\nSelect priority to confirm:`,
-      options: [
-        { id: 'Urgent', title: 'Urgent' },
-        { id: 'High', title: 'High' },
-        { id: 'Medium', title: 'Medium' },
-        { id: 'Low', title: 'Low' }
-      ],
-      data: {
-        structuredIntent,
-        pendingTask: structuredIntent
-      },
-      isFallbackEngine: true
-    };
-  }
-
   return {
     intent: 'create_task',
-    actionSummary: `Create task "${taskTitle}" for ${dueDate === todayStr ? 'Today' : 'Tomorrow'} at ${dueTime} [Priority: ${explicitPriority}]`,
+    actionSummary: `Create task "${taskTitle}" for ${parsedDetails.date} at ${parsedDetails.time} [Priority: ${explicitPriority}]`,
     requiresConfirmation: true,
-    confirmationMessage: `Create this task?\n\n• Title: ${taskTitle}\n• Date: ${dueDate}\n• Time: ${dueTime}\n• Priority: ${explicitPriority}`,
+    confirmationMessage: `Create this task?\n\n• Title: ${taskTitle}\n• Date: ${parsedDetails.date}\n• Time: ${parsedDetails.time}\n• Priority: ${explicitPriority}`,
     data: {
       structuredIntent,
-      ...structuredIntent,
-      priority: explicitPriority
+      ...structuredIntent
     },
     isFallbackEngine: true
   };

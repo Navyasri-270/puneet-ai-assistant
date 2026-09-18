@@ -87,9 +87,19 @@ export async function createTask(data: Partial<TaskItem>): Promise<TaskItem> {
     });
 
     try {
-      await syncTaskToOutlook(created.id);
-    } catch (syncErr) {
+      const syncResult = await syncTaskToOutlook(created.id);
+      if (!syncResult.success) {
+        await prisma.task.update({
+          where: { id: created.id },
+          data: { outlookSyncStatus: 'Failed', outlookSyncError: syncResult.error || 'Sync failed' }
+        });
+      }
+    } catch (syncErr: any) {
       console.warn("Outlook auto-sync error during task creation:", syncErr);
+      await prisma.task.update({
+        where: { id: created.id },
+        data: { outlookSyncStatus: 'Failed', outlookSyncError: syncErr?.message || 'Sync failed' }
+      });
     }
 
     const latest = await prisma.task.findUnique({ where: { id: created.id } });
@@ -694,9 +704,19 @@ export async function createReminder(data: {
     });
 
     try {
-      await syncReminderToOutlook(created.id);
-    } catch (syncErr) {
+      const syncResult = await syncReminderToOutlook(created.id);
+      if (!syncResult.success) {
+        await prisma.reminder.update({
+          where: { id: created.id },
+          data: { outlookSyncStatus: 'Failed', outlookSyncError: syncResult.error || 'Sync failed' }
+        });
+      }
+    } catch (syncErr: any) {
       console.warn("Outlook auto-sync error during reminder creation:", syncErr);
+      await prisma.reminder.update({
+        where: { id: created.id },
+        data: { outlookSyncStatus: 'Failed', outlookSyncError: syncErr?.message || 'Sync failed' }
+      });
     }
 
     const latest = await prisma.reminder.findUnique({ where: { id: created.id }, include: { task: true } });

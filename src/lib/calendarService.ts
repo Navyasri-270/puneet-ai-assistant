@@ -255,9 +255,19 @@ export async function createCalendarEvent(data: {
     });
 
     try {
-      await syncCalendarEventToOutlook(created.id);
-    } catch (syncErr) {
+      const syncResult = await syncCalendarEventToOutlook(created.id);
+      if (!syncResult.success) {
+        await prisma.calendarEvent.update({
+          where: { id: created.id },
+          data: { outlookSyncStatus: 'Failed', outlookSyncError: syncResult.error || 'Sync failed' }
+        });
+      }
+    } catch (syncErr: any) {
       console.warn("Outlook auto-sync error during calendar event creation:", syncErr);
+      await prisma.calendarEvent.update({
+        where: { id: created.id },
+        data: { outlookSyncStatus: 'Failed', outlookSyncError: syncErr?.message || 'Sync failed' }
+      });
     }
 
     const latest = await prisma.calendarEvent.findUnique({ where: { id: created.id } });
