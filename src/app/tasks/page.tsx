@@ -40,12 +40,54 @@ interface ReminderItem {
   reminderTime: string;
   channel: string;
   triggered: boolean;
+  notificationEnabled?: boolean;
+  notificationRepeatCount?: number;
+  notificationIntervalMinutes?: number;
+  notificationSentCount?: number;
+  notificationCompleted?: boolean;
+  quietHoursEnabled?: boolean;
+  quietHoursStart?: string;
+  quietHoursEnd?: string;
+  timezone?: string;
   taskId?: string;
   task?: { id: string; title: string };
   outlookEventId?: string;
   outlookSyncStatus?: string;
   outlookSyncError?: string;
   createdAt: string;
+}
+
+function getNotificationTimesPreview(dateStr: string, timeStr: string, repeatCount: number, intervalMins: number): string {
+  if (repeatCount <= 0 || intervalMins <= 0) return "";
+
+  const [year, month, day] = (dateStr || new Date().toISOString().split('T')[0]).split('-').map(Number);
+  const baseDate = new Date(year, (month || 1) - 1, day || 1, 9, 0, 0);
+
+  const tMatch = (timeStr || "09:00 AM").match(/(\d{1,2}):?(\d{2})?\s*(AM|PM)?/i);
+  if (tMatch) {
+    let hours = parseInt(tMatch[1], 10);
+    const mins = tMatch[2] ? parseInt(tMatch[2], 10) : 0;
+    const ampm = tMatch[3] ? tMatch[3].toUpperCase() : null;
+    if (ampm === 'PM' && hours < 12) hours += 12;
+    if (ampm === 'AM' && hours === 12) hours = 0;
+    baseDate.setHours(hours, mins, 0, 0);
+  }
+
+  const times: string[] = [];
+  for (let i = 0; i < Math.min(repeatCount, 20); i++) {
+    const t = new Date(baseDate.getTime() + i * intervalMins * 60 * 1000);
+    times.push(t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+  }
+
+  if (times.length === 1) {
+    return `This reminder will notify you once at ${times[0]}.`;
+  }
+  if (times.length === 2) {
+    return `This reminder will notify you 2 times: ${times[0]} and ${times[1]}.`;
+  }
+  const allButLast = times.slice(0, -1).join(', ');
+  const last = times[times.length - 1];
+  return `This reminder will notify you ${repeatCount} times: ${allButLast}, and ${last}.`;
 }
 
 export default function TasksPage() {
@@ -86,7 +128,15 @@ export default function TasksPage() {
     title: "",
     reminderDate: new Date().toISOString().split('T')[0],
     reminderTimeStr: "10:00 AM",
-    taskId: ""
+    taskId: "",
+    notificationEnabled: true,
+    notificationRepeatCount: 3,
+    notificationIntervalMinutes: 30,
+    channel: "Mobile Push",
+    quietHoursEnabled: false,
+    quietHoursStart: "22:00",
+    quietHoursEnd: "07:00",
+    timezone: "Asia/Kolkata"
   });
 
   const fetchTasks = useCallback(async () => {
@@ -174,7 +224,15 @@ export default function TasksPage() {
         title: rem.title,
         reminderDate: dateStr,
         reminderTimeStr: timeStr,
-        taskId: rem.taskId || ""
+        taskId: rem.taskId || "",
+        notificationEnabled: rem.notificationEnabled ?? true,
+        notificationRepeatCount: rem.notificationRepeatCount ?? 1,
+        notificationIntervalMinutes: rem.notificationIntervalMinutes ?? 15,
+        channel: rem.channel || "Mobile Push",
+        quietHoursEnabled: rem.quietHoursEnabled ?? false,
+        quietHoursStart: rem.quietHoursStart || "22:00",
+        quietHoursEnd: rem.quietHoursEnd || "07:00",
+        timezone: rem.timezone || "Asia/Kolkata"
       });
     } else {
       setEditingReminder(null);
@@ -182,7 +240,15 @@ export default function TasksPage() {
         title: "",
         reminderDate: new Date().toISOString().split('T')[0],
         reminderTimeStr: "10:00 AM",
-        taskId: ""
+        taskId: "",
+        notificationEnabled: true,
+        notificationRepeatCount: 3,
+        notificationIntervalMinutes: 30,
+        channel: "Mobile Push",
+        quietHoursEnabled: false,
+        quietHoursStart: "22:00",
+        quietHoursEnd: "07:00",
+        timezone: "Asia/Kolkata"
       });
     }
     setIsReminderModalOpen(true);
@@ -193,11 +259,9 @@ export default function TasksPage() {
     if (!reminderForm.title.trim()) return;
 
     try {
-      // Parse ISO string from date and time
       const [year, month, day] = reminderForm.reminderDate.split('-').map(Number);
       const targetTime = new Date(year, month - 1, day, 10, 0, 0);
 
-      // Parse time string e.g. 10:00 AM or 15:30
       const tMatch = reminderForm.reminderTimeStr.match(/(\d{1,2}):?(\d{2})?\s*(AM|PM)?/i);
       if (tMatch) {
         let hours = parseInt(tMatch[1], 10);
@@ -210,16 +274,25 @@ export default function TasksPage() {
 
       const isoTime = targetTime.toISOString();
 
+      const payload = {
+        title: reminderForm.title,
+        reminderTime: isoTime,
+        taskId: reminderForm.taskId || null,
+        channel: reminderForm.channel,
+        notificationEnabled: reminderForm.notificationEnabled,
+        notificationRepeatCount: Number(reminderForm.notificationRepeatCount),
+        notificationIntervalMinutes: Number(reminderForm.notificationIntervalMinutes),
+        quietHoursEnabled: reminderForm.quietHoursEnabled,
+        quietHoursStart: reminderForm.quietHoursStart,
+        quietHoursEnd: reminderForm.quietHoursEnd,
+        timezone: reminderForm.timezone
+      };
+
       if (editingReminder) {
-        // PATCH update
         const res = await fetch(`/api/reminders/${editingReminder.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            title: reminderForm.title,
-            reminderTime: isoTime,
-            taskId: reminderForm.taskId || null
-          })
+          body: JSON.stringify(payload)
         });
         const data = await res.json();
         if (data.reminder || data.success) {
@@ -228,15 +301,10 @@ export default function TasksPage() {
           fetchReminders();
         }
       } else {
-        // POST create
         const res = await fetch('/api/reminders', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            title: reminderForm.title,
-            reminderTime: isoTime,
-            taskId: reminderForm.taskId || null
-          })
+          body: JSON.stringify(payload)
         });
         const data = await res.json();
         if (data.reminder || data.success) {
@@ -946,6 +1014,95 @@ export default function TasksPage() {
                     />
                   </div>
                 </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="font-semibold text-slate-700 block mb-1">Repeat Notifications *</label>
+                    <select
+                      value={reminderForm.notificationRepeatCount}
+                      onChange={(e) => setReminderForm({ ...reminderForm, notificationRepeatCount: Number(e.target.value) })}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-slate-900 focus:outline-none text-xs font-medium"
+                    >
+                      <option value={1}>1 time (Once)</option>
+                      <option value={2}>2 times</option>
+                      <option value={3}>3 times</option>
+                      <option value={4}>4 times</option>
+                      <option value={5}>5 times</option>
+                      <option value={10}>10 times</option>
+                      <option value={15}>15 times</option>
+                      <option value={20}>20 times (Max limit)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="font-semibold text-slate-700 block mb-1">Time Gap *</label>
+                    <select
+                      value={reminderForm.notificationIntervalMinutes}
+                      onChange={(e) => setReminderForm({ ...reminderForm, notificationIntervalMinutes: Number(e.target.value) })}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-slate-900 focus:outline-none text-xs font-medium"
+                    >
+                      <option value={5}>5 minutes</option>
+                      <option value={10}>10 minutes</option>
+                      <option value={15}>15 minutes</option>
+                      <option value={30}>30 minutes</option>
+                      <option value={60}>1 hour</option>
+                      <option value={120}>2 hours</option>
+                      <option value={240}>4 hours</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="font-semibold text-slate-700 block mb-1">Notification Channel</label>
+                  <select
+                    value={reminderForm.channel}
+                    onChange={(e) => setReminderForm({ ...reminderForm, channel: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-slate-900 focus:outline-none text-xs font-medium"
+                  >
+                    <option value="Mobile Push">Mobile Push Notification</option>
+                    <option value="In-App">In-App Banner Only</option>
+                  </select>
+                </div>
+
+                <div className="space-y-2 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                  <span className="font-semibold text-slate-700 block text-xs">Options</span>
+                  <label className="flex items-center gap-2 cursor-pointer text-slate-800">
+                    <input
+                      type="checkbox"
+                      checked={reminderForm.notificationEnabled}
+                      onChange={(e) => setReminderForm({ ...reminderForm, notificationEnabled: e.target.checked })}
+                      className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
+                    />
+                    <span>Enable mobile push notifications</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer text-slate-800">
+                    <input
+                      type="checkbox"
+                      checked={reminderForm.quietHoursEnabled}
+                      onChange={(e) => setReminderForm({ ...reminderForm, quietHoursEnabled: e.target.checked })}
+                      className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
+                    />
+                    <span>Respect quiet hours (22:00 – 07:00)</span>
+                  </label>
+                </div>
+
+                {/* Live Preview Banner */}
+                {reminderForm.notificationRepeatCount > 0 && (
+                  <div className="bg-indigo-50/80 border border-indigo-200 p-3 rounded-xl text-indigo-900 text-xs font-medium space-y-1">
+                    <div className="flex items-center gap-1.5 font-bold text-indigo-950">
+                      <Bell className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Notification Schedule Preview</span>
+                    </div>
+                    <p className="text-indigo-800 leading-relaxed">
+                      {getNotificationTimesPreview(
+                        reminderForm.reminderDate,
+                        reminderForm.reminderTimeStr,
+                        reminderForm.notificationRepeatCount,
+                        reminderForm.notificationIntervalMinutes
+                      )}
+                    </p>
+                  </div>
+                )}
 
                 <div>
                   <label className="font-semibold text-slate-700 block mb-1">Associate with Task (Optional)</label>

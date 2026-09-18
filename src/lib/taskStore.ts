@@ -527,6 +527,19 @@ export interface ReminderItem {
   reminderTime: string;
   channel: string;
   triggered: boolean;
+  notificationEnabled?: boolean;
+  notificationSent?: boolean;
+  notificationBefore?: number;
+  notificationRepeatCount?: number;
+  notificationIntervalMinutes?: number;
+  notificationSentCount?: number;
+  nextNotificationAt?: string | null;
+  lastNotificationAt?: string | null;
+  notificationCompleted?: boolean;
+  quietHoursEnabled?: boolean;
+  quietHoursStart?: string | null;
+  quietHoursEnd?: string | null;
+  timezone?: string | null;
   outlookEventId?: string | null;
   outlookSyncStatus?: string | null;
   outlookSyncError?: string | null;
@@ -534,6 +547,47 @@ export interface ReminderItem {
 }
 
 let memoryReminders: ReminderItem[] = [];
+
+function mapDbReminderToItem(r: any): ReminderItem {
+  return {
+    id: r.id,
+    title: r.title || 'Executive Reminder',
+    taskId: r.taskId,
+    task: r.task ? {
+      id: r.task.id,
+      title: r.task.title,
+      description: r.task.description,
+      status: r.task.status,
+      priority: r.task.priority,
+      dueDate: r.task.dueDate,
+      dueTime: r.task.dueTime,
+      category: r.task.category,
+      notes: r.task.notes,
+      createdAt: r.task.createdAt.toISOString(),
+      updatedAt: r.task.updatedAt.toISOString(),
+    } : null,
+    reminderTime: r.reminderTime.toISOString(),
+    channel: r.channel,
+    triggered: r.triggered,
+    notificationEnabled: r.notificationEnabled ?? true,
+    notificationSent: r.notificationSent ?? false,
+    notificationBefore: r.notificationBefore ?? 15,
+    notificationRepeatCount: r.notificationRepeatCount ?? 1,
+    notificationIntervalMinutes: r.notificationIntervalMinutes ?? 15,
+    notificationSentCount: r.notificationSentCount ?? 0,
+    nextNotificationAt: r.nextNotificationAt ? r.nextNotificationAt.toISOString() : null,
+    lastNotificationAt: r.lastNotificationAt ? r.lastNotificationAt.toISOString() : (r.lastNotifiedAt ? r.lastNotifiedAt.toISOString() : null),
+    notificationCompleted: r.notificationCompleted ?? false,
+    quietHoursEnabled: r.quietHoursEnabled ?? false,
+    quietHoursStart: r.quietHoursStart ?? '22:00',
+    quietHoursEnd: r.quietHoursEnd ?? '07:00',
+    timezone: r.timezone ?? 'Asia/Kolkata',
+    outlookEventId: r.outlookEventId,
+    outlookSyncStatus: r.outlookSyncStatus,
+    outlookSyncError: r.outlookSyncError,
+    createdAt: r.createdAt.toISOString(),
+  };
+}
 
 export async function getReminders(filter?: 'today' | 'upcoming' | 'triggered' | 'all') {
   const todayStr = new Date().toISOString().split('T')[0];
@@ -546,38 +600,14 @@ export async function getReminders(filter?: 'today' | 'upcoming' | 'triggered' |
     });
 
     if (dbReminders && dbReminders.length > 0) {
-      let formatted: ReminderItem[] = dbReminders.map(r => ({
-        id: r.id,
-        title: r.title || 'Executive Reminder',
-        taskId: r.taskId,
-        task: r.task ? {
-          id: r.task.id,
-          title: r.task.title,
-          description: r.task.description,
-          status: r.task.status,
-          priority: r.task.priority,
-          dueDate: r.task.dueDate,
-          dueTime: r.task.dueTime,
-          category: r.task.category,
-          notes: r.task.notes,
-          createdAt: r.task.createdAt.toISOString(),
-          updatedAt: r.task.updatedAt.toISOString(),
-        } : null,
-        reminderTime: r.reminderTime.toISOString(),
-        channel: r.channel,
-        triggered: r.triggered,
-        outlookEventId: r.outlookEventId,
-        outlookSyncStatus: r.outlookSyncStatus,
-        outlookSyncError: r.outlookSyncError,
-        createdAt: r.createdAt.toISOString(),
-      }));
+      let formatted: ReminderItem[] = dbReminders.map(mapDbReminderToItem);
 
       if (filter === 'today') {
         formatted = formatted.filter(r => r.reminderTime.startsWith(todayStr));
       } else if (filter === 'upcoming') {
-        formatted = formatted.filter(r => r.reminderTime >= nowISO && !r.triggered);
+        formatted = formatted.filter(r => r.reminderTime >= nowISO && !r.notificationCompleted);
       } else if (filter === 'triggered') {
-        formatted = formatted.filter(r => r.triggered);
+        formatted = formatted.filter(r => r.triggered || r.notificationCompleted);
       }
 
       return formatted;
@@ -590,15 +620,31 @@ export async function getReminders(filter?: 'today' | 'upcoming' | 'triggered' |
   if (filter === 'today') {
     memoryResult = memoryResult.filter(r => r.reminderTime.startsWith(todayStr));
   } else if (filter === 'upcoming') {
-    memoryResult = memoryResult.filter(r => r.reminderTime >= nowISO && !r.triggered);
+    memoryResult = memoryResult.filter(r => r.reminderTime >= nowISO && !r.notificationCompleted);
   } else if (filter === 'triggered') {
-    memoryResult = memoryResult.filter(r => r.triggered);
+    memoryResult = memoryResult.filter(r => r.triggered || r.notificationCompleted);
   }
   return memoryResult;
 }
 
-export async function createReminder(data: { title?: string; reminderTime: string | Date; taskId?: string; channel?: string }) {
+export async function createReminder(data: {
+  title?: string;
+  reminderTime: string | Date;
+  taskId?: string;
+  channel?: string;
+  notificationEnabled?: boolean;
+  notificationBefore?: number;
+  notificationRepeatCount?: number;
+  notificationIntervalMinutes?: number;
+  quietHoursEnabled?: boolean;
+  quietHoursStart?: string;
+  quietHoursEnd?: string;
+  timezone?: string;
+}) {
   const rTime = typeof data.reminderTime === 'string' ? new Date(data.reminderTime) : data.reminderTime;
+  const repeatCount = Math.max(1, Math.min(20, data.notificationRepeatCount ?? 1));
+  const intervalMins = Math.max(5, data.notificationIntervalMinutes ?? 15);
+  
   const newReminder: ReminderItem = {
     id: `rem-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
     title: data.title || 'Executive Reminder',
@@ -606,6 +652,19 @@ export async function createReminder(data: { title?: string; reminderTime: strin
     reminderTime: rTime.toISOString(),
     channel: data.channel || 'In-App',
     triggered: false,
+    notificationEnabled: data.notificationEnabled ?? true,
+    notificationSent: false,
+    notificationBefore: data.notificationBefore ?? 15,
+    notificationRepeatCount: repeatCount,
+    notificationIntervalMinutes: intervalMins,
+    notificationSentCount: 0,
+    nextNotificationAt: rTime.toISOString(),
+    lastNotificationAt: null,
+    notificationCompleted: false,
+    quietHoursEnabled: data.quietHoursEnabled ?? false,
+    quietHoursStart: data.quietHoursStart ?? '22:00',
+    quietHoursEnd: data.quietHoursEnd ?? '07:00',
+    timezone: data.timezone ?? 'Asia/Kolkata',
     createdAt: new Date().toISOString()
   };
 
@@ -617,7 +676,18 @@ export async function createReminder(data: { title?: string; reminderTime: strin
         taskId: newReminder.taskId || undefined,
         reminderTime: rTime,
         channel: newReminder.channel,
-        triggered: false
+        triggered: false,
+        notificationEnabled: newReminder.notificationEnabled,
+        notificationBefore: newReminder.notificationBefore,
+        notificationRepeatCount: repeatCount,
+        notificationIntervalMinutes: intervalMins,
+        notificationSentCount: 0,
+        nextNotificationAt: rTime,
+        notificationCompleted: false,
+        quietHoursEnabled: newReminder.quietHoursEnabled,
+        quietHoursStart: newReminder.quietHoursStart,
+        quietHoursEnd: newReminder.quietHoursEnd,
+        timezone: newReminder.timezone,
       },
       include: { task: true }
     });
@@ -631,31 +701,7 @@ export async function createReminder(data: { title?: string; reminderTime: strin
     const latest = await prisma.reminder.findUnique({ where: { id: created.id }, include: { task: true } });
     const target = latest || created;
 
-    const formatted: ReminderItem = {
-      id: target.id,
-      title: target.title,
-      taskId: target.taskId,
-      task: target.task ? {
-        id: target.task.id,
-        title: target.task.title,
-        description: target.task.description,
-        status: target.task.status,
-        priority: target.task.priority,
-        dueDate: target.task.dueDate,
-        dueTime: target.task.dueTime,
-        category: target.task.category,
-        notes: target.task.notes,
-        createdAt: target.task.createdAt.toISOString(),
-        updatedAt: target.task.updatedAt.toISOString(),
-      } : null,
-      reminderTime: target.reminderTime.toISOString(),
-      channel: target.channel,
-      triggered: target.triggered,
-      outlookEventId: target.outlookEventId,
-      outlookSyncStatus: target.outlookSyncStatus,
-      outlookSyncError: target.outlookSyncError,
-      createdAt: target.createdAt.toISOString()
-    };
+    const formatted: ReminderItem = mapDbReminderToItem(target);
     memoryReminders.unshift(formatted);
     return formatted;
   } catch (err) {
@@ -665,7 +711,27 @@ export async function createReminder(data: { title?: string; reminderTime: strin
   }
 }
 
-export async function updateReminder(id: string, updates: Partial<{ title: string; reminderTime: string | Date; taskId: string; triggered: boolean; channel: string }>) {
+export async function updateReminder(
+  id: string,
+  updates: Partial<{
+    title: string;
+    reminderTime: string | Date;
+    taskId: string;
+    triggered: boolean;
+    channel: string;
+    notificationEnabled: boolean;
+    notificationBefore: number;
+    notificationRepeatCount: number;
+    notificationIntervalMinutes: number;
+    notificationSentCount: number;
+    nextNotificationAt: string | Date;
+    notificationCompleted: boolean;
+    quietHoursEnabled: boolean;
+    quietHoursStart: string;
+    quietHoursEnd: string;
+    timezone: string;
+  }>
+) {
   try {
     const idx = memoryReminders.findIndex(r => r.id === id);
     if (idx !== -1) {
@@ -678,7 +744,18 @@ export async function updateReminder(id: string, updates: Partial<{ title: strin
 
     const dataToUpdate: any = { ...updates };
     if (updates.reminderTime) {
-      dataToUpdate.reminderTime = new Date(updates.reminderTime);
+      const parsedRTime = new Date(updates.reminderTime);
+      dataToUpdate.reminderTime = parsedRTime;
+      // Reset next notification time & counts if reminder time changed
+      if (updates.nextNotificationAt === undefined) {
+        dataToUpdate.nextNotificationAt = parsedRTime;
+        dataToUpdate.notificationSentCount = 0;
+        dataToUpdate.notificationCompleted = false;
+        dataToUpdate.triggered = false;
+      }
+    }
+    if (updates.nextNotificationAt) {
+      dataToUpdate.nextNotificationAt = new Date(updates.nextNotificationAt);
     }
 
     const updated = await prisma.reminder.update({
@@ -696,31 +773,7 @@ export async function updateReminder(id: string, updates: Partial<{ title: strin
     const latest = await prisma.reminder.findUnique({ where: { id }, include: { task: true } });
     const target = latest || updated;
 
-    return {
-      id: target.id,
-      title: target.title,
-      taskId: target.taskId,
-      task: target.task ? {
-        id: target.task.id,
-        title: target.task.title,
-        description: target.task.description,
-        status: target.task.status,
-        priority: target.task.priority,
-        dueDate: target.task.dueDate,
-        dueTime: target.task.dueTime,
-        category: target.task.category,
-        notes: target.task.notes,
-        createdAt: target.task.createdAt.toISOString(),
-        updatedAt: target.task.updatedAt.toISOString(),
-      } : null,
-      reminderTime: target.reminderTime.toISOString(),
-      channel: target.channel,
-      triggered: target.triggered,
-      outlookEventId: target.outlookEventId,
-      outlookSyncStatus: target.outlookSyncStatus,
-      outlookSyncError: target.outlookSyncError,
-      createdAt: target.createdAt.toISOString()
-    };
+    return mapDbReminderToItem(target);
   } catch (err) {
     console.warn("DB update reminder fallback:", err);
     return memoryReminders.find(r => r.id === id) || null;

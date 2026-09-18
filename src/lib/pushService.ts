@@ -303,11 +303,11 @@ export async function processAllPushNotifications(force = false): Promise<{
     }
   }
 
-  // --- STAGE 2: Reminder Due & Notification-Before Alerts (ATOMIC DB CLAIMS) ---
+  // --- STAGE 2: Reminder Due & Repeat Notification Alerts (ATOMIC DB CLAIMS) ---
   const activeReminders = await prisma.reminder.findMany({
     where: {
-      triggered: false,
       notificationEnabled: true,
+      notificationCompleted: false,
     },
   });
 
@@ -327,7 +327,7 @@ export async function processAllPushNotifications(force = false): Promise<{
     ) {
       const claim = await prisma.reminder.updateMany({
         where: { id: rem.id, beforeNotifiedAt: null },
-        data: { beforeNotifiedAt: now, lastNotifiedAt: now },
+        data: { beforeNotifiedAt: now, lastNotifiedAt: now, lastNotificationAt: now },
       });
 
       if (claim.count > 0) {
@@ -341,7 +341,10 @@ export async function processAllPushNotifications(force = false): Promise<{
 
         const delivered = await dispatchToSubscriptions(payload, (sub) => {
           if (!sub.reminderNotificationsEnabled) return false;
-          if (!force && isQuietHours(sub.quietHoursEnabled, sub.quietHoursStart, sub.quietHoursEnd, sub.timezone, now)) {
+          if (!force && (
+            isQuietHours(sub.quietHoursEnabled, sub.quietHoursStart, sub.quietHoursEnd, sub.timezone, now) ||
+            isQuietHours(rem.quietHoursEnabled, rem.quietHoursStart || '22:00', rem.quietHoursEnd || '07:00', rem.timezone || 'Asia/Kolkata', now)
+          )) {
             return false;
           }
           return true;
@@ -352,25 +355,58 @@ export async function processAllPushNotifications(force = false): Promise<{
       }
     }
 
-    // 2B: Reminder Exact Due-Time Alert (Atomic DB Claim)
-    if (!rem.dueNotifiedAt && nowMs >= reminderMs) {
+    // 2B: Reminder Due & Repeat Notification Alert (Atomic DB Claim)
+    const nextNotifyMs = rem.nextNotificationAt
+      ? new Date(rem.nextNotificationAt).getTime()
+      : reminderMs;
+
+    const repeatLimit = Math.max(1, rem.notificationRepeatCount || 1);
+    const intervalMins = Math.max(5, rem.notificationIntervalMinutes || 15);
+
+    if (
+      nowMs >= nextNotifyMs &&
+      rem.notificationSentCount < repeatLimit &&
+      !rem.notificationCompleted
+    ) {
+      const newSentCount = rem.notificationSentCount + 1;
+      const isCompleted = newSentCount >= repeatLimit;
+      const nextTime = new Date(nextNotifyMs + intervalMins * 60 * 1000);
+
       const claim = await prisma.reminder.updateMany({
-        where: { id: rem.id, dueNotifiedAt: null },
-        data: { dueNotifiedAt: now, notificationSent: true, triggered: true, lastNotifiedAt: now },
+        where: {
+          id: rem.id,
+          notificationSentCount: rem.notificationSentCount,
+          notificationCompleted: false,
+        },
+        data: {
+          notificationSentCount: newSentCount,
+          notificationSent: true,
+          lastNotifiedAt: now,
+          lastNotificationAt: now,
+          nextNotificationAt: nextTime,
+          notificationCompleted: isCompleted,
+          triggered: isCompleted,
+          dueNotifiedAt: rem.dueNotifiedAt || now,
+        },
       });
 
       if (claim.count > 0) {
         const payload = {
-          title: `🔔 Executive Reminder: ${rem.title}`,
-          body: `Scheduled for ${new Date(rem.reminderTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+          title: repeatLimit > 1
+            ? `🔔 Executive Reminder (${newSentCount}/${repeatLimit}): ${rem.title}`
+            : `🔔 Executive Reminder: ${rem.title}`,
+          body: `Scheduled for ${new Date(rem.reminderTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}${repeatLimit > 1 ? ` | Notification ${newSentCount} of ${repeatLimit}` : ''}`,
           url: `${appUrl}/calendar`,
-          tag: `reminder-due-${rem.id}`,
+          tag: `reminder-due-${rem.id}-${newSentCount}`,
           reminderId: rem.id,
         };
 
         const delivered = await dispatchToSubscriptions(payload, (sub) => {
           if (!sub.reminderNotificationsEnabled) return false;
-          if (!force && isQuietHours(sub.quietHoursEnabled, sub.quietHoursStart, sub.quietHoursEnd, sub.timezone, now)) {
+          if (!force && (
+            isQuietHours(sub.quietHoursEnabled, sub.quietHoursStart, sub.quietHoursEnd, sub.timezone, now) ||
+            isQuietHours(rem.quietHoursEnabled, rem.quietHoursStart || '22:00', rem.quietHoursEnd || '07:00', rem.timezone || 'Asia/Kolkata', now)
+          )) {
             return false;
           }
           return true;

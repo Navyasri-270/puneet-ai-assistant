@@ -37,29 +37,41 @@ model Task {
 }
 
 model Reminder {
-  id                  String   @id @default(uuid())
-  title               String   @default("Executive Reminder")
-  taskId              String?
-  reminderTime        DateTime
-  channel             String   @default("In-App")
-  triggered           Boolean  @default(false)
-  notificationEnabled Boolean  @default(true)
-  notificationSent    Boolean  @default(false)
-  notificationBefore  Int      @default(15)
-  beforeNotifiedAt    DateTime?
-  dueNotifiedAt       DateTime?
-  overdueNotifiedAt   DateTime?
-  lastNotifiedAt      DateTime?
-  outlookEventId      String?
-  outlookSyncStatus   String?  @default("Pending")
-  outlookSyncError    String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @default(now()) @updatedAt
-  task                Task?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  id                          String    @id @default(uuid())
+  title                       String    @default("Executive Reminder")
+  taskId                      String?
+  reminderTime                DateTime
+  channel                     String    @default("In-App")
+  triggered                   Boolean   @default(false)
+  notificationEnabled         Boolean   @default(true)
+  notificationSent            Boolean   @default(false)
+  notificationBefore          Int       @default(15)
+  notificationRepeatCount     Int       @default(1)
+  notificationIntervalMinutes Int       @default(15)
+  notificationSentCount       Int       @default(0)
+  nextNotificationAt          DateTime?
+  lastNotificationAt          DateTime?
+  notificationCompleted       Boolean   @default(false)
+  quietHoursEnabled           Boolean   @default(false)
+  quietHoursStart             String?   @default("22:00")
+  quietHoursEnd               String?   @default("07:00")
+  timezone                    String?   @default("Asia/Kolkata")
+  beforeNotifiedAt            DateTime?
+  dueNotifiedAt               DateTime?
+  overdueNotifiedAt           DateTime?
+  lastNotifiedAt              DateTime?
+  outlookEventId              String?
+  outlookSyncStatus           String?   @default("Pending")
+  outlookSyncError            String?
+  createdAt                   DateTime  @default(now())
+  updatedAt                   DateTime  @default(now()) @updatedAt
+  task                        Task?     @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   @@index([taskId])
   @@index([reminderTime, triggered, notificationEnabled])
+  @@index([nextNotificationAt, notificationCompleted, notificationEnabled])
 }
+
 
 model CalendarEvent {
   id                String   @id @default(uuid())

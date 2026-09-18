@@ -25,7 +25,20 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { title, reminderTime, taskId, channel } = body;
+    const {
+      title,
+      reminderTime,
+      taskId,
+      channel,
+      notificationEnabled,
+      notificationBefore,
+      notificationRepeatCount,
+      notificationIntervalMinutes,
+      quietHoursEnabled,
+      quietHoursStart,
+      quietHoursEnd,
+      timezone,
+    } = body;
 
     if (!reminderTime || typeof reminderTime !== 'string') {
       return NextResponse.json({ error: 'Valid ISO reminderTime is required' }, { status: 400 });
@@ -35,7 +48,15 @@ export async function POST(req: NextRequest) {
       title: title || 'Executive Reminder',
       reminderTime,
       taskId: taskId || undefined,
-      channel: channel || 'In-App'
+      channel: channel || 'In-App',
+      notificationEnabled: notificationEnabled !== undefined ? Boolean(notificationEnabled) : true,
+      notificationBefore: notificationBefore !== undefined ? Number(notificationBefore) : 15,
+      notificationRepeatCount: notificationRepeatCount !== undefined ? Number(notificationRepeatCount) : 1,
+      notificationIntervalMinutes: notificationIntervalMinutes !== undefined ? Number(notificationIntervalMinutes) : 15,
+      quietHoursEnabled: quietHoursEnabled !== undefined ? Boolean(quietHoursEnabled) : false,
+      quietHoursStart: quietHoursStart || '22:00',
+      quietHoursEnd: quietHoursEnd || '07:00',
+      timezone: timezone || 'Asia/Kolkata',
     });
 
     return NextResponse.json({ success: true, reminder }, { status: 201 });
