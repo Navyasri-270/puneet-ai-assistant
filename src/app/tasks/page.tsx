@@ -17,7 +17,8 @@ import {
   ChevronDown,
   Bell
 } from 'lucide-react';
-import { useMounted, formatDate, formatTime } from '@/lib/dateUtils';
+import { formatDate, formatTime } from '@/lib/dateUtils';
+import { useMounted } from '@/lib/useExecutiveTimezone';
 
 interface Task {
   id: string;

@@ -16,10 +16,12 @@ import {
   Calendar as CalendarIcon,
   Sparkles,
   Bell,
-  Mail
+  Mail,
+  Globe
 } from 'lucide-react';
 import PushRegister from '@/components/PushRegister';
-import { useMounted, formatDate } from '@/lib/dateUtils';
+import { formatDate, formatTime, COMMON_TIMEZONES, getBrowserTimezone } from '@/lib/dateUtils';
+import { useMounted, useExecutiveTimezone } from '@/lib/useExecutiveTimezone';
 
 export interface ExecutiveMemory {
   id: string;
@@ -31,6 +33,7 @@ export interface ExecutiveMemory {
 }
 
 export default function SettingsPage() {
+  const { timezone, greeting, updateTimezone, mounted: tzMounted } = useExecutiveTimezone();
   const mounted = useMounted();
   const [memories, setMemories] = useState<ExecutiveMemory[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -479,9 +482,61 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {/* Right Column: Outlook 365, Push Notifications, & System Architecture */}
+          {/* Right Column: Timezone, Outlook 365, Push Notifications, & System Architecture */}
           <div className="space-y-4">
             
+            {/* Executive Timezone & Location Settings Card */}
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-executive space-y-4">
+              <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2 border-b border-slate-100 pb-2">
+                <Globe className="w-4 h-4 text-blue-600" />
+                Executive Timezone & Location Settings
+              </h2>
+
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3 text-xs">
+                <div>
+                  <label className="font-bold text-slate-800 block mb-1">Select Active Executive Timezone</label>
+                  <select
+                    value={timezone}
+                    onChange={(e) => {
+                      const selectedTz = e.target.value;
+                      updateTimezone(selectedTz);
+                      fetch('/api/memories', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          key: 'timezone',
+                          value: selectedTz,
+                          category: 'Preferences'
+                        })
+                      }).catch(err => console.warn(err));
+                      setNotification(`✓ Timezone updated to ${selectedTz}. Executive Dashboard greeting and schedule displays updated.`);
+                    }}
+                    className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 font-semibold text-xs focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  >
+                    <option value={getBrowserTimezone()}>Auto-Detected Browser Timezone ({getBrowserTimezone()})</option>
+                    {COMMON_TIMEZONES.map(tz => (
+                      <option key={tz.value} value={tz.value}>{tz.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="bg-blue-50/80 border border-blue-200 p-3 rounded-lg text-blue-900 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-blue-950">Active Timezone:</span>
+                    <span className="font-bold font-mono text-blue-800">{tzMounted ? timezone : 'Loading...'}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-blue-950">Dashboard Greeting:</span>
+                    <span className="font-bold text-blue-800">{tzMounted ? `${greeting}, Puneet.` : 'Welcome, Puneet.'}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-blue-700 pt-1 border-t border-blue-200/60 mt-1">
+                    <span>Current Time in {timezone}:</span>
+                    <span className="font-semibold">{tzMounted ? formatTime(new Date(), timezone) : '--'}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* Outlook 365 Calendar Integration Card */}
             <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-executive space-y-4">
               <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2 border-b border-slate-100 pb-2">

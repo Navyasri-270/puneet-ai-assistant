@@ -1,5 +1,6 @@
 import { getTasks, getEmailDrafts, getRelevantMemories, getReminders } from './taskStore';
 import { getUnifiedSchedule } from './calendarService';
+import { getGreetingForTimezone } from './dateUtils';
 
 export interface DailyBriefingData {
   todayStr: string;
@@ -132,7 +133,7 @@ export async function generateDailyBriefing(): Promise<DailyBriefingData> {
   }
 
   // 6. Factual Executive Summary & Formatted Markdown
-  const greeting = "Good morning, Puneet.";
+  const greeting = `${getGreetingForTimezone(new Date())}, Puneet.`;
   let summaryText = `You have ${todayTasks.length} task${todayTasks.length !== 1 ? 's' : ''} and ${scheduleEvents.length} schedule item${scheduleEvents.length !== 1 ? 's' : ''} for today (${todayStr}).`;
 
   if (highPriorityTasks.length > 0) {

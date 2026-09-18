@@ -4,7 +4,8 @@ import React from 'react';
 import Link from 'next/link';
 import { Menu, Sparkles, Bell, Calendar as CalendarIcon, ShieldCheck } from 'lucide-react';
 
-import { useMounted, formatDate } from '@/lib/dateUtils';
+import { formatDate } from '@/lib/dateUtils';
+import { useMounted, useExecutiveTimezone } from '@/lib/useExecutiveTimezone';
 
 interface HeaderProps {
   onToggleSidebar?: () => void;
@@ -12,6 +13,7 @@ interface HeaderProps {
 }
 
 export default function Header({ onToggleSidebar, pendingCount = 0 }: HeaderProps) {
+  const { timezone } = useExecutiveTimezone();
   const mounted = useMounted();
   const currentDateFormatted = mounted
     ? formatDate(new Date(), {
@@ -19,7 +21,7 @@ export default function Header({ onToggleSidebar, pendingCount = 0 }: HeaderProp
         year: 'numeric',
         month: 'long',
         day: 'numeric'
-      })
+      }, timezone)
     : '';
 
   return (

@@ -19,7 +19,8 @@ import {
   Info
 } from 'lucide-react';
 import { CombinedScheduleItem, CalendarEventItem, getLocalDateStr } from '@/lib/calendarService';
-import { useMounted, formatDate } from '@/lib/dateUtils';
+import { formatDate } from '@/lib/dateUtils';
+import { useMounted } from '@/lib/useExecutiveTimezone';
 
 type CalendarViewMode = 'day' | 'week' | 'month' | 'year' | 'agenda';
 

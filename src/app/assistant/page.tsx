@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { formatTime } from '@/lib/dateUtils';
+import { useExecutiveTimezone } from '@/lib/useExecutiveTimezone';
 import { 
   Sparkles, 
   Send, 
@@ -37,20 +38,25 @@ interface ChatMessage {
 }
 
 export default function AssistantPage() {
+  const { greeting, mounted: tzMounted } = useExecutiveTimezone();
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'init-1',
       sender: 'assistant',
-      text: "Good morning, Puneet. I am your executive assistant. Tell me what you need to get done, and I will organize, update, or summarize your priorities.",
+      text: "I am your executive assistant. Tell me what you need to get done, and I will organize, update, or summarize your priorities.",
       timestamp: ""
     }
   ]);
 
   useEffect(() => {
-    setMessages(prev => prev.map(m => m.id === 'init-1' && !m.timestamp ? { ...m, timestamp: formatTime(new Date()) } : m));
-  }, []);
+    setMessages(prev => prev.map(m => m.id === 'init-1' ? {
+      ...m,
+      text: `${tzMounted ? greeting : 'Welcome'}, Puneet. I am your executive assistant. Tell me what you need to get done, and I will organize, update, or summarize your priorities.`,
+      timestamp: m.timestamp || formatTime(new Date())
+    } : m));
+  }, [tzMounted, greeting]);
 
   const [activePendingTask, setActivePendingTask] = useState<any | null>(null);
 

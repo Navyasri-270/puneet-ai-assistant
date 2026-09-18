@@ -1,5 +1,6 @@
 import { prisma } from './db';
 import { syncTaskToOutlook, syncReminderToOutlook, deleteOutlookEvent } from './outlookService';
+import { getGreetingForTimezone } from './dateUtils';
 
 export interface TaskItem {
   id: string;
@@ -197,7 +198,7 @@ export async function generateBriefingSummary() {
   const highPriorityToday = todayTasks.filter(t => t.priority === 'High' || t.priority === 'Urgent');
   const overdueTasks = tasks.filter(t => t.dueDate && t.dueDate < todayStr && t.status !== 'Completed');
   
-  let summaryText = `Good morning, Puneet. You have ${todayTasks.length} task${todayTasks.length !== 1 ? 's' : ''} scheduled for today`;
+  let summaryText = `${getGreetingForTimezone(new Date())}, Puneet. You have ${todayTasks.length} task${todayTasks.length !== 1 ? 's' : ''} scheduled for today`;
   if (highPriorityToday.length > 0) {
     summaryText += `, including ${highPriorityToday.length} high-priority item${highPriorityToday.length > 1 ? 's' : ''}`;
   }

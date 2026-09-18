@@ -20,7 +20,8 @@ import {
   Bell
 } from 'lucide-react';
 import { getLocalDateStr } from '@/lib/calendarService';
-import { useMounted, formatDate, formatTime } from '@/lib/dateUtils';
+import { formatDate, formatTime, setUserTimezone } from '@/lib/dateUtils';
+import { useMounted, useExecutiveTimezone } from '@/lib/useExecutiveTimezone';
 
 interface Task {
   id: string;
@@ -35,6 +36,7 @@ interface Task {
 }
 
 export default function Dashboard() {
+  const { timezone, greeting, mounted: tzMounted } = useExecutiveTimezone();
   const mounted = useMounted();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
@@ -87,6 +89,17 @@ export default function Dashboard() {
             if (data.briefing) {
               setBriefingData(data.briefing);
               setBriefing(data.briefing.summaryText);
+            }
+          }),
+
+        fetch('/api/memories?category=Preferences')
+          .then(res => res.json())
+          .then(data => {
+            if (data.memories) {
+              const tzMem = data.memories.find((m: any) => m.key === 'timezone');
+              if (tzMem && tzMem.value) {
+                setUserTimezone(tzMem.value);
+              }
             }
           })
       ]);
@@ -232,10 +245,15 @@ export default function Dashboard() {
       <div className="space-y-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-xl border border-slate-200 shadow-executive">
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Good morning, Puneet.</h1>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+                {tzMounted ? `${greeting}, Puneet.` : 'Welcome, Puneet.'}
+              </h1>
               <span className="bg-blue-50 text-blue-700 text-xs font-semibold px-2.5 py-0.5 rounded-full border border-blue-200">
                 Executive Mode
+              </span>
+              <span className="bg-slate-100 text-slate-700 text-xs font-medium px-2.5 py-0.5 rounded-full border border-slate-200" title="Active Timezone">
+                {tzMounted ? timezone : 'Loading...'}
               </span>
             </div>
             <p className="text-slate-600 text-sm mt-1">
