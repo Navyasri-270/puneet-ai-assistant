@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { formatTime } from '@/lib/dateUtils';
 import { useExecutiveTimezone } from '@/lib/useExecutiveTimezone';
+import VoiceInput from '@/components/VoiceInput';
 import { 
   Sparkles, 
   Send, 
@@ -371,6 +372,13 @@ export default function AssistantPage() {
                 onChange={(e) => setInput(e.target.value)}
                 placeholder="Tell Puneet AI what to schedule, complete, update, or summarize..."
                 className="flex-1 bg-white border border-slate-300 rounded-lg px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent"
+              />
+              <VoiceInput
+                onTranscript={(trans) => {
+                  setInput(trans);
+                  handleSend(trans);
+                }}
+                size="md"
               />
               <button
                 type="submit"

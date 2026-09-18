@@ -22,6 +22,7 @@ import {
 import { getLocalDateStr } from '@/lib/calendarService';
 import { formatDate, formatTime, setUserTimezone } from '@/lib/dateUtils';
 import { useMounted, useExecutiveTimezone } from '@/lib/useExecutiveTimezone';
+import VoiceInput from '@/components/VoiceInput';
 
 interface Task {
   id: string;
@@ -328,19 +329,25 @@ export default function Dashboard() {
               </label>
               <span className="text-[11px] text-slate-400">Press Enter or click execute</span>
             </div>
-            <div className="relative">
+            <div className="relative flex items-center gap-2">
               <input
                 id="quick-assistant-input"
                 type="text"
                 value={assistantInput}
                 onChange={(e) => setAssistantInput(e.target.value)}
                 placeholder='e.g. "Remind me tomorrow at 10 AM to follow up with the Dubai leads"'
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3.5 text-slate-100 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all pr-24"
+                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3.5 text-slate-100 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+              />
+              <VoiceInput
+                onTranscript={(trans) => {
+                  setAssistantInput(trans);
+                }}
+                size="md"
               />
               <button
                 type="submit"
                 disabled={isSubmittingAI || !assistantInput.trim()}
-                className="absolute right-2 top-2 bottom-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold px-4 rounded-md flex items-center gap-1.5 transition-all"
+                className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold px-4 py-3.5 rounded-lg flex items-center gap-1.5 transition-all shrink-0"
               >
                 {isSubmittingAI ? (
                   <RefreshCw className="w-3.5 h-3.5 animate-spin" />

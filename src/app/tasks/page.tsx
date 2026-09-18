@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { formatDate, formatTime, DEFAULT_TIMEZONE } from '@/lib/dateUtils';
 import { useMounted } from '@/lib/useExecutiveTimezone';
+import VoiceInput from '@/components/VoiceInput';
 
 interface Task {
   id: string;
@@ -860,14 +861,20 @@ export default function TasksPage() {
               <form onSubmit={handleSaveTask} className="space-y-4 text-xs">
                 <div>
                   <label className="font-semibold text-slate-700 block mb-1">Task Title *</label>
-                  <input
-                    type="text"
-                    required
-                    value={formData.title}
-                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                    placeholder="e.g. Follow up with Dubai leads"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 text-xs"
-                  />
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      required
+                      value={formData.title}
+                      onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                      placeholder="e.g. Follow up with Dubai leads"
+                      className="flex-1 bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 text-xs"
+                    />
+                    <VoiceInput
+                      onTranscript={(t) => setFormData((prev) => ({ ...prev, title: t }))}
+                      size="sm"
+                    />
+                  </div>
                 </div>
 
                 <div>

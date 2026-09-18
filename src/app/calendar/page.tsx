@@ -21,6 +21,7 @@ import {
 import { CombinedScheduleItem, CalendarEventItem, getLocalDateStr } from '@/lib/calendarService';
 import { formatDate } from '@/lib/dateUtils';
 import { useMounted } from '@/lib/useExecutiveTimezone';
+import VoiceInput from '@/components/VoiceInput';
 
 type CalendarViewMode = 'day' | 'week' | 'month' | 'year' | 'agenda';
 
@@ -860,14 +861,20 @@ export default function CalendarPage() {
               <form onSubmit={handleSaveEvent} className="space-y-4 text-xs">
                 <div>
                   <label className="font-semibold text-slate-700 block mb-1">Event Title *</label>
-                  <input
-                    type="text"
-                    required
-                    value={formData.title}
-                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                    placeholder="e.g. Meeting with John"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 text-xs"
-                  />
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      required
+                      value={formData.title}
+                      onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                      placeholder="e.g. Meeting with John"
+                      className="flex-1 bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 text-xs"
+                    />
+                    <VoiceInput
+                      onTranscript={(t) => setFormData((prev) => ({ ...prev, title: t }))}
+                      size="sm"
+                    />
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-3 gap-3">

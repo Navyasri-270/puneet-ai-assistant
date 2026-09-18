@@ -9,6 +9,7 @@ import {
   CheckSquare, 
   Calendar, 
   Mail, 
+  FileText,
   Settings, 
   UserCircle2,
   Briefcase
@@ -27,6 +28,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
     { name: 'Assistant', href: '/assistant', icon: Sparkles, badge: 'AI' },
     { name: 'Tasks', href: '/tasks', icon: CheckSquare },
     { name: 'Calendar', href: '/calendar', icon: Calendar },
+    { name: 'Notepad', href: '/notepad', icon: FileText },
     { name: 'Email Drafts', href: '/email', icon: Mail },
     { name: 'Settings & Memory', href: '/settings', icon: Settings },
   ];

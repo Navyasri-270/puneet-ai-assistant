@@ -168,3 +168,18 @@ model PushSubscription {
   createdAt                    DateTime  @default(now())
   updatedAt                    DateTime  @updatedAt
 }
+
+model Note {
+  id        String   @id @default(uuid())
+  title     String
+  content   String   @default("")
+  category  String   @default("General")
+  pinned    Boolean  @default(false)
+  tags      String?  @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([pinned, updatedAt])
+  @@index([category])
+}
+
