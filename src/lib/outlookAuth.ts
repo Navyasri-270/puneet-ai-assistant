@@ -10,12 +10,8 @@ export function getOutlookConfig() {
   const tenantId = process.env.MICROSOFT_TENANT_ID || 'common';
   
   let redirectUri = process.env.MICROSOFT_REDIRECT_URI || '';
-  if (!redirectUri) {
-    if (process.env.NEXT_PUBLIC_APP_URL) {
-      redirectUri = `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/outlook/callback`;
-    } else {
-      redirectUri = 'http://localhost:3000/api/auth/outlook/callback';
-    }
+  if (!redirectUri && process.env.NEXT_PUBLIC_APP_URL) {
+    redirectUri = `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/outlook/callback`;
   }
 
   return { clientId, clientSecret, tenantId, redirectUri, scopes: SCOPES };

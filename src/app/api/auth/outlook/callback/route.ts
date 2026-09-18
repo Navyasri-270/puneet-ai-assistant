@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
   const error = searchParams.get('error');
   const errorDescription = searchParams.get('error_description');
 
-  const origin = req.nextUrl.origin || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  const origin = process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin;
 
   if (error || !code) {
     console.error(`[OutlookCallback] OAuth error: ${error || 'missing_code'}. Description: ${errorDescription || 'No description provided'}`);
