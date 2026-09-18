@@ -422,7 +422,30 @@ export function parseNaturalLanguageRequest(prompt: string, existingTasks: TaskI
     };
   }
 
-  // 5. CREATE TASK INTENT (Default natural language extraction)
+  // 5. CREATE TASK INTENT (Explicit task creation requests only)
+  const isExplicitTaskRequest = 
+    /^(create|add|new|schedule|set|remind|todo|remember|put|make)\b/i.test(lower) ||
+    /\b(create task|add task|new task|todo|remind me to|schedule task|set reminder|create a task|add a task|create reminder|task for|tasks for)\b/i.test(lower);
+
+  if (!isExplicitTaskRequest) {
+    return {
+      intent: 'general',
+      actionSummary: 'Processed chat response without creating task',
+      data: {
+        type: 'chat',
+        title: prompt,
+        description: '',
+        date: todayStr,
+        time: '10:00 AM',
+        recurrence: 'none'
+      },
+      isFallbackEngine: true
+    };
+  }
+
+  // Check if multiple tasks requested explicitly
+  const isMultipleTasks = /\b(multiple tasks|several tasks|\d+\s+tasks)\b/i.test(lower) || (prompt.includes('\n') && (lower.includes('create tasks') || lower.includes('add tasks')));
+
   let dueTime = "10:00 AM";
   const timeMatch = prompt.match(/\bat\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\b/i) || 
                     prompt.match(/\b(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/i);
@@ -435,7 +458,10 @@ export function parseNaturalLanguageRequest(prompt: string, existingTasks: TaskI
   }
 
   let dueDate = todayStr;
-  if (/\btomorrow\b/i.test(prompt)) {
+  const isoDateMatch = prompt.match(/\b(\d{4}-\d{2}-\d{2})\b/);
+  if (isoDateMatch) {
+    dueDate = isoDateMatch[1];
+  } else if (/\btomorrow\b/i.test(prompt)) {
     dueDate = tomorrowStr;
   } else if (/\bfriday\b/i.test(prompt)) {
     dueDate = fridayStr;
@@ -464,10 +490,11 @@ export function parseNaturalLanguageRequest(prompt: string, existingTasks: TaskI
   }
 
   let taskTitle = prompt;
-
   taskTitle = taskTitle.replace(/^(remind me|create task|create a task|add task|add a task|schedule task|schedule a task)\b\s*/i, '');
 
   taskTitle = taskTitle
+    .replace(/\bon\s+\d{4}-\d{2}-\d{2}\b/gi, '')
+    .replace(/\b\d{4}-\d{2}-\d{2}\b/gi, '')
     .replace(/\bby tomorrow\b/gi, '')
     .replace(/\bby friday\b/gi, '')
     .replace(/\bby monday\b/gi, '')
@@ -502,20 +529,38 @@ export function parseNaturalLanguageRequest(prompt: string, existingTasks: TaskI
     taskTitle = "Executive Action Item";
   }
 
-  const pendingTaskData = {
+  const structuredIntent = {
+    type: 'task',
     title: taskTitle,
-    dueDate,
-    dueTime,
+    description: '',
+    date: dueDate,
+    time: dueTime,
+    recurrence: 'none',
+    priority: explicitPriority || 'Medium',
     category,
-    status: "To Do"
+    status: 'To Do'
   };
+
+  if (isMultipleTasks) {
+    return {
+      intent: 'clarify',
+      actionSummary: 'Multiple tasks detected in prompt. Confirmation requested.',
+      requiresConfirmation: true,
+      confirmationMessage: 'I detected a request for multiple tasks. Should I create all of them?',
+      data: {
+        structuredIntent,
+        pendingTask: structuredIntent
+      },
+      isFallbackEngine: true
+    };
+  }
 
   if (!explicitPriority) {
     const dateLabel = dueDate === todayStr ? 'Today' : 'Tomorrow';
     return {
       intent: 'clarify_priority' as any,
-      actionSummary: `Task details extracted for "${taskTitle}". Awaiting priority decision.`,
-      clarificationQuestion: `I have the task details:\n• ${taskTitle}\n• ${dateLabel} at ${dueTime}\n\nWhat priority should I set?`,
+      actionSummary: `Task details extracted for "${taskTitle}". Awaiting priority selection to create this task.`,
+      clarificationQuestion: `Create this task?\n\n• Title: ${taskTitle}\n• Schedule: ${dateLabel} at ${dueTime}\n\nSelect priority to confirm:`,
       options: [
         { id: 'Urgent', title: 'Urgent' },
         { id: 'High', title: 'High' },
@@ -523,7 +568,8 @@ export function parseNaturalLanguageRequest(prompt: string, existingTasks: TaskI
         { id: 'Low', title: 'Low' }
       ],
       data: {
-        pendingTask: pendingTaskData
+        structuredIntent,
+        pendingTask: structuredIntent
       },
       isFallbackEngine: true
     };
@@ -531,9 +577,12 @@ export function parseNaturalLanguageRequest(prompt: string, existingTasks: TaskI
 
   return {
     intent: 'create_task',
-    actionSummary: `Created task "${taskTitle}" for ${dueDate === todayStr ? 'Today' : 'Tomorrow'} at ${dueTime} [Priority: ${explicitPriority}]`,
+    actionSummary: `Create task "${taskTitle}" for ${dueDate === todayStr ? 'Today' : 'Tomorrow'} at ${dueTime} [Priority: ${explicitPriority}]`,
+    requiresConfirmation: true,
+    confirmationMessage: `Create this task?\n\n• Title: ${taskTitle}\n• Date: ${dueDate}\n• Time: ${dueTime}\n• Priority: ${explicitPriority}`,
     data: {
-      ...pendingTaskData,
+      structuredIntent,
+      ...structuredIntent,
       priority: explicitPriority
     },
     isFallbackEngine: true

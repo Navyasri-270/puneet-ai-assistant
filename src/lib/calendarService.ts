@@ -135,7 +135,10 @@ export async function getUnifiedSchedule(targetDate?: string, externalEvents?: C
       endTime: endStr,
       location: evt.location || undefined,
       description: evt.description || undefined,
-      category: evt.category || 'Meeting'
+      category: evt.category || 'Meeting',
+      outlookEventId: evt.outlookEventId,
+      outlookSyncStatus: evt.source === 'outlook' ? 'Synced' : evt.outlookSyncStatus,
+      outlookSyncError: evt.outlookSyncError,
     });
   });
 
@@ -150,7 +153,10 @@ export async function getUnifiedSchedule(targetDate?: string, externalEvents?: C
       description: t.description || undefined,
       category: t.category || 'Task',
       priority: t.priority,
-      status: t.status
+      status: t.status,
+      outlookEventId: t.outlookEventId,
+      outlookSyncStatus: t.outlookSyncStatus,
+      outlookSyncError: t.outlookSyncError,
     });
   });
 
@@ -177,7 +183,10 @@ export async function getUnifiedSchedule(targetDate?: string, externalEvents?: C
         time: timeStr,
         description: r.task ? `Linked Task: ${r.task.title}` : undefined,
         category: 'Reminder',
-        status: r.triggered ? 'Triggered' : 'Scheduled'
+        status: r.triggered ? 'Triggered' : 'Scheduled',
+        outlookEventId: r.outlookEventId,
+        outlookSyncStatus: r.outlookSyncStatus,
+        outlookSyncError: r.outlookSyncError,
       });
     });
   } catch (e) {

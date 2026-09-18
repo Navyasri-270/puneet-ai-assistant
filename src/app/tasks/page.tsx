@@ -98,6 +98,7 @@ export default function TasksPage() {
   const [loading, setLoading] = useState(true);
   const [mainView, setMainView] = useState<'tasks' | 'reminders'>('tasks');
   const [syncingBulk, setSyncingBulk] = useState(false);
+  const [syncingItemIds, setSyncingItemIds] = useState<Record<string, boolean>>({});
 
   // Task filters
   const [searchQuery, setSearchQuery] = useState("");
@@ -195,6 +196,7 @@ export default function TasksPage() {
   };
 
   const handleManualItemSync = async (type: 'task' | 'reminder', id: string) => {
+    setSyncingItemIds(prev => ({ ...prev, [id]: true }));
     try {
       const res = await fetch('/api/outlook/sync', {
         method: 'POST',
@@ -203,15 +205,15 @@ export default function TasksPage() {
       });
       const data = await res.json();
       if (data.success) {
-        fetchTasks();
-        fetchReminders();
+        await Promise.all([fetchTasks(), fetchReminders()]);
       } else {
         alert(`Outlook sync failed: ${data.error || 'Unknown error'}`);
-        fetchTasks();
-        fetchReminders();
+        await Promise.all([fetchTasks(), fetchReminders()]);
       }
     } catch (err: any) {
       alert(`Sync request failed: ${err.message}`);
+    } finally {
+      setSyncingItemIds(prev => ({ ...prev, [id]: false }));
     }
   };
 
@@ -746,6 +748,7 @@ export default function TasksPage() {
                 {reminders.map((rem) => {
                   const remDateObj = new Date(rem.reminderTime);
                   const isPast = remDateObj < new Date();
+                  const isSyncingRem = Boolean(syncingItemIds[rem.id]);
                   return (
                     <div 
                       key={rem.id}
@@ -775,10 +778,11 @@ export default function TasksPage() {
                                 <AlertCircle className="w-3 h-3 text-rose-600" /> Sync failed
                               </span>
                               <button
+                                disabled={isSyncingRem}
                                 onClick={() => handleManualItemSync('reminder', rem.id)}
-                                className="text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
+                                className="text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                               >
-                                Sync to Outlook
+                                {isSyncingRem ? 'Syncing...' : 'Sync to Outlook'}
                               </button>
                             </div>
                           ) : (
@@ -787,10 +791,11 @@ export default function TasksPage() {
                                 <Clock className="w-3 h-3 text-amber-600" /> Sync pending
                               </span>
                               <button
+                                disabled={isSyncingRem}
                                 onClick={() => handleManualItemSync('reminder', rem.id)}
-                                className="text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
+                                className="text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                               >
-                                Sync to Outlook
+                                {isSyncingRem ? 'Syncing...' : 'Sync to Outlook'}
                               </button>
                             </div>
                           )}

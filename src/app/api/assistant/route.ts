@@ -4,6 +4,7 @@ import { generateDailyBriefing } from '@/lib/briefingService';
 import { parseNaturalLanguageRequest, AIActionResponse } from '@/lib/aiActionParser';
 import { validateExecutiveAuth, sanitizeErrorResponse } from '@/lib/auth';
 import { checkRateLimit } from '@/lib/rateLimit';
+import { getCachedRequestResponse, setCachedRequestResponse, findDuplicateTask, findDuplicateReminder } from '@/lib/taskDeduplication';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,7 +27,14 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { prompt, selectedOptionId, pendingTask, selectedPriority } = body;
+    const { prompt, selectedOptionId, pendingTask, selectedPriority, confirmAction } = body;
+    const requestId = body.requestId || req.headers.get('x-request-id') || null;
+
+    // Idempotency check: Return cached response if request was already executed
+    const cachedResponse = getCachedRequestResponse(requestId);
+    if (cachedResponse) {
+      return NextResponse.json(cachedResponse);
+    }
 
     if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
       return NextResponse.json({ error: 'Valid prompt string is required' }, { status: 400 });
@@ -35,29 +43,46 @@ export async function POST(req: NextRequest) {
     const currentTasks = await getTasks();
 
     // Handle priority selection for pending task (e.g. user selected "High", "Urgent", "Medium", "Low")
-    if (pendingTask && (selectedPriority || selectedOptionId)) {
-      const priorityChoice = selectedPriority || selectedOptionId;
+    if (pendingTask && (selectedPriority || selectedOptionId || confirmAction)) {
+      const priorityChoice = selectedPriority || selectedOptionId || pendingTask.priority || 'Medium';
       const validPriorities = ['Urgent', 'High', 'Medium', 'Low'];
-      if (validPriorities.includes(priorityChoice)) {
-        const created = await createTask({
-          title: pendingTask.title,
-          dueDate: pendingTask.dueDate,
-          dueTime: pendingTask.dueTime,
-          category: pendingTask.category,
-          priority: priorityChoice,
-          status: 'To Do'
-        });
+      const finalPriority = validPriorities.includes(priorityChoice) ? priorityChoice : 'Medium';
 
-        const allTasks = await getTasks();
-        return NextResponse.json({
+      // Check duplicate before creating
+      const existingDuplicate = await findDuplicateTask(pendingTask.title, pendingTask.dueDate, pendingTask.dueTime);
+      if (existingDuplicate) {
+        const responseObj = {
           success: true,
           intent: 'create_task',
-          message: `Done. I've created the task with ${created.priority} priority.`,
-          actionSummary: `Created task "${created.title}" with ${created.priority} priority`,
-          tasks: allTasks,
+          message: `A task with this title already exists: "${existingDuplicate.title}" scheduled for ${existingDuplicate.dueDate || 'today'} at ${existingDuplicate.dueTime || '10:00 AM'}.`,
+          actionSummary: `Duplicate task prevented: "${existingDuplicate.title}"`,
+          tasks: currentTasks,
           isFallbackEngine: true
-        });
+        };
+        setCachedRequestResponse(requestId, responseObj);
+        return NextResponse.json(responseObj);
       }
+
+      const created = await createTask({
+        title: pendingTask.title,
+        dueDate: pendingTask.dueDate,
+        dueTime: pendingTask.dueTime,
+        category: pendingTask.category,
+        priority: finalPriority,
+        status: 'To Do'
+      });
+
+      const allTasks = await getTasks();
+      const responseObj = {
+        success: true,
+        intent: 'create_task',
+        message: `Done. I've created the task with ${created.priority} priority.`,
+        actionSummary: `Created task "${created.title}" with ${created.priority} priority`,
+        tasks: allTasks,
+        isFallbackEngine: true
+      };
+      setCachedRequestResponse(requestId, responseObj);
+      return NextResponse.json(responseObj);
     }
 
     // Handle clarification choice option if user selected a specific memory or task to remove/update
@@ -257,12 +282,24 @@ export async function POST(req: NextRequest) {
             error: 'Server validation error: Task title missing'
           }, { status: 422 });
         }
+
+        const existingDup = await findDuplicateTask(
+          parsedAction.data.title, 
+          parsedAction.data.dueDate || parsedAction.data.date, 
+          parsedAction.data.dueTime || parsedAction.data.time
+        );
+
+        if (existingDup) {
+          executionMessage = `A task with this title already exists: "${existingDup.title}" scheduled for ${existingDup.dueDate || 'today'} at ${existingDup.dueTime || '10:00 AM'}.`;
+          break;
+        }
+
         const created = await createTask({
           title: parsedAction.data.title,
-          dueDate: parsedAction.data.dueDate,
-          dueTime: parsedAction.data.dueTime,
-          priority: parsedAction.data.priority,
-          category: parsedAction.data.category,
+          dueDate: parsedAction.data.dueDate || parsedAction.data.date,
+          dueTime: parsedAction.data.dueTime || parsedAction.data.time,
+          priority: parsedAction.data.priority || 'Medium',
+          category: parsedAction.data.category || 'General',
           status: "To Do"
         });
         updatedTaskList = await getTasks();
@@ -320,12 +357,13 @@ export async function POST(req: NextRequest) {
         executionMessage = parsedAction.clarificationQuestion || "Could you specify which item you meant?";
         break;
 
+      case 'general':
       default:
-        executionMessage = `I have analyzed your request. ${parsedAction.actionSummary}`;
+        executionMessage = `I understand. How would you like me to assist you with your executive schedule, tasks, or emails?`;
         break;
     }
 
-    return NextResponse.json({
+    const finalResponseObj = {
       success: true,
       intent: parsedAction.intent,
       message: executionMessage,
@@ -337,7 +375,10 @@ export async function POST(req: NextRequest) {
       data: extraData,
       tasks: updatedTaskList,
       isFallbackEngine: parsedAction.isFallbackEngine
-    });
+    };
+
+    setCachedRequestResponse(requestId, finalResponseObj);
+    return NextResponse.json(finalResponseObj);
 
   } catch (err: any) {
     return sanitizeErrorResponse(err, 'An error occurred processing your assistant request');

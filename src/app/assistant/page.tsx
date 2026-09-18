@@ -92,9 +92,11 @@ export default function AssistantPage() {
     const taskCtx = taskContextOverride || activePendingTask;
     const isPriorityWord = ['urgent', 'high', 'medium', 'low'].includes(promptToSubmit.trim().toLowerCase());
 
+    const reqId = `req-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
     const reqPayload: any = { 
       prompt: promptToSubmit, 
-      selectedOptionId 
+      selectedOptionId,
+      requestId: reqId
     };
 
     if (taskCtx) {
@@ -127,7 +129,7 @@ export default function AssistantPage() {
         requiresConfirmation: data.requiresConfirmation,
         confirmationMessage: data.confirmationMessage,
         emailDraft: data.intent === 'draft_email' ? data.data : undefined,
-        pendingTaskData: data.data?.pendingTask,
+        pendingTaskData: data.data?.pendingTask || data.data?.structuredIntent,
         isFallbackEngine: data.isFallbackEngine,
         timestamp: formatTime(new Date())
       };
@@ -148,18 +150,63 @@ export default function AssistantPage() {
     }
   };
 
+  const handleConfirmAction = async (msgId: string, approved: boolean, pendingTaskData?: any) => {
+    if (!approved) {
+      setMessages(prev => prev.map(m => {
+        if (m.id === msgId) {
+          return {
+            ...m,
+            requiresConfirmation: false,
+            text: `Action cancelled.`
+          };
+        }
+        return m;
+      }));
+      return;
+    }
 
-  const handleConfirmAction = (msgId: string, approved: boolean) => {
-    setMessages(prev => prev.map(m => {
-      if (m.id === msgId) {
-        return {
-          ...m,
-          requiresConfirmation: false,
-          text: approved ? `${m.text} ✓ Approved & Confirmed.` : `${m.text} (Cancelled by user)`
-        };
+    if (pendingTaskData) {
+      setLoading(true);
+      try {
+        const reqId = `req-confirm-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
+        const res = await fetch('/api/assistant', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: `Confirm task creation: ${pendingTaskData.title}`,
+            pendingTask: pendingTaskData,
+            confirmAction: true,
+            requestId: reqId
+          })
+        });
+        const data = await res.json();
+        setMessages(prev => prev.map(m => {
+          if (m.id === msgId) {
+            return {
+              ...m,
+              requiresConfirmation: false,
+              text: data.message || `✓ Confirmed and created task "${pendingTaskData.title}".`
+            };
+          }
+          return m;
+        }));
+      } catch (err) {
+        console.error("Confirmation error:", err);
+      } finally {
+        setLoading(false);
       }
-      return m;
-    }));
+    } else {
+      setMessages(prev => prev.map(m => {
+        if (m.id === msgId) {
+          return {
+            ...m,
+            requiresConfirmation: false,
+            text: `${m.text} ✓ Approved & Confirmed.`
+          };
+        }
+        return m;
+      }));
+    }
   };
 
   return (
@@ -276,7 +323,7 @@ export default function AssistantPage() {
                       )}
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={() => handleConfirmAction(msg.id, true)}
+                          onClick={() => handleConfirmAction(msg.id, true, (msg as any).pendingTaskData)}
                           className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3.5 py-1.5 rounded-lg flex items-center gap-1 transition-colors"
                         >
                           <Check className="w-3.5 h-3.5" /> Approve & Confirm
