@@ -320,7 +320,7 @@ export async function updateOutlookEvent(eventId: string, params: GraphEventPara
 /**
  * Delete an Outlook Calendar event via DELETE https://graph.microsoft.com/v1.0/me/events/{eventId}
  */
-export async function deleteOutlookEvent(eventId: string): Promise<{ success: boolean; error?: string }> {
+export async function deleteOutlookEvent(eventId: string): Promise<{ success: boolean; status?: number; error?: string }> {
   const token = await getValidMicrosoftAccessToken();
   if (!token) {
     return { success: false, error: 'Outlook account is not connected' };
@@ -336,24 +336,233 @@ export async function deleteOutlookEvent(eventId: string): Promise<{ success: bo
       },
     });
 
-    if (!res.ok && res.status !== 404) {
-      const errText = await res.text();
-      let sanitizedMsg = `HTTP ${res.status}`;
-      try {
-        const errJson = JSON.parse(errText);
-        sanitizedMsg = errJson.error?.message || sanitizedMsg;
-      } catch (e) {}
-      console.error(`[OutlookService] Event deletion failed (${res.status}): ${sanitizedMsg}`);
-      return { success: false, error: `Microsoft Graph API error (${res.status}): ${sanitizedMsg}` };
+    if (res.status === 204 || res.status === 200 || res.status === 404) {
+      console.log(`[OutlookService] Outlook event ${eventId} deleted successfully (status: ${res.status}).`);
+      return { success: true, status: res.status };
     }
 
-    console.log(`[OutlookService] Outlook event ${eventId} deleted successfully (or already absent).`);
-    return { success: true };
+    const errText = await res.text();
+    let sanitizedMsg = `HTTP ${res.status}`;
+    try {
+      const errJson = JSON.parse(errText);
+      sanitizedMsg = errJson.error?.message || sanitizedMsg;
+    } catch (e) {}
+    console.error(`[OutlookService] Event deletion failed (${res.status}): ${sanitizedMsg}`);
+    return { success: false, status: res.status, error: `Microsoft Graph API error (${res.status}): ${sanitizedMsg}` };
   } catch (error: any) {
     console.error('[OutlookService] Exception deleting Outlook event:', error.message || error);
     return { success: false, error: error.message || 'Failed to delete Outlook event' };
   }
 }
+
+/**
+ * Safe Microsoft Graph Delta Sync & Deletion Reconciliation
+ * Reads Microsoft Graph /me/events/delta stream using stored delta link/token.
+ * Deletes corresponding local DB tasks, reminders, and calendar events only when:
+ * 1. Microsoft Graph confirms deletion via '@removed' tag or 404 Not Found on initial sync.
+ * 2. Record has a valid real outlookEventId and outlookSyncStatus === 'Synced'.
+ * 3. Never deletes local records if Graph API is unavailable, token is invalid, or sync fails.
+ */
+export async function reconcileOutlookDeletions(): Promise<{
+  success: boolean;
+  deletedTasks: number;
+  deletedReminders: number;
+  deletedEvents: number;
+  deltaLinkSaved: boolean;
+  error?: string;
+}> {
+  const token = await getValidMicrosoftAccessToken();
+  if (!token) {
+    return {
+      success: false,
+      deletedTasks: 0,
+      deletedReminders: 0,
+      deletedEvents: 0,
+      deltaLinkSaved: false,
+      error: 'Outlook account is not connected'
+    };
+  }
+
+  let storedDeltaLink: string | null = null;
+  try {
+    const memoryRecord = await prisma.memory.findUnique({ where: { key: 'outlook_events_delta_link' } });
+    if (memoryRecord?.value) {
+      storedDeltaLink = memoryRecord.value;
+    }
+  } catch (err) {
+    console.warn('[OutlookService] Delta link lookup warning:', err);
+  }
+
+  let currentUrl: string | null = storedDeltaLink || 'https://graph.microsoft.com/v1.0/me/events/delta?$select=id,subject';
+  let isInitialFullSync = !storedDeltaLink;
+  let newDeltaLink: string | null = null;
+  const removedIds = new Set<string>();
+  const activeIds = new Set<string>();
+
+  let pageCount = 0;
+  const maxPages = 50;
+  let isTokenExpiredReset = false;
+
+  while (currentUrl && pageCount < maxPages) {
+    pageCount++;
+    try {
+      const res: Response = await fetch(currentUrl, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (res.status === 410 && !isTokenExpiredReset) {
+        console.warn('[OutlookService] Delta link expired (410 Gone). Resetting to initial delta endpoint...');
+        isTokenExpiredReset = true;
+        storedDeltaLink = null;
+        isInitialFullSync = true;
+        currentUrl = 'https://graph.microsoft.com/v1.0/me/events/delta?$select=id,subject';
+        await prisma.memory.delete({ where: { key: 'outlook_events_delta_link' } }).catch(() => {});
+        continue;
+      }
+
+      if (!res.ok) {
+        const errTxt = await res.text();
+        console.error(`[OutlookService] Delta sync page fetch failed (${res.status}):`, errTxt);
+        return {
+          success: false,
+          deletedTasks: 0,
+          deletedReminders: 0,
+          deletedEvents: 0,
+          deltaLinkSaved: false,
+          error: `Graph API delta sync error (${res.status})`
+        };
+      }
+
+      const data: any = await res.json();
+      if (!Array.isArray(data.value)) {
+        console.error('[OutlookService] Invalid delta sync payload (value array missing)');
+        return {
+          success: false,
+          deletedTasks: 0,
+          deletedReminders: 0,
+          deletedEvents: 0,
+          deltaLinkSaved: false,
+          error: 'Invalid Graph API delta payload'
+        };
+      }
+
+      for (const item of data.value) {
+        if (item['@removed']) {
+          removedIds.add(item.id);
+        } else if (item.id) {
+          activeIds.add(item.id);
+        }
+      }
+
+      if (data['@odata.nextLink']) {
+        currentUrl = data['@odata.nextLink'];
+      } else if (data['@odata.deltaLink']) {
+        newDeltaLink = data['@odata.deltaLink'];
+        currentUrl = null;
+      } else {
+        currentUrl = null;
+      }
+    } catch (err: any) {
+      console.error('[OutlookService] Exception during Graph delta fetch:', err);
+      return {
+        success: false,
+        deletedTasks: 0,
+        deletedReminders: 0,
+        deletedEvents: 0,
+        deltaLinkSaved: false,
+        error: err.message || 'Network failure during delta sync'
+      };
+    }
+  }
+
+  if (newDeltaLink) {
+    try {
+      await prisma.memory.upsert({
+        where: { key: 'outlook_events_delta_link' },
+        create: { key: 'outlook_events_delta_link', value: newDeltaLink, category: 'System' },
+        update: { value: newDeltaLink }
+      });
+    } catch (err) {
+      console.warn('[OutlookService] Failed to persist new delta link:', err);
+    }
+  }
+
+  let deletedTasks = 0;
+  let deletedReminders = 0;
+  let deletedEvents = 0;
+
+  const syncedTasks = await prisma.task.findMany({
+    where: { outlookEventId: { not: null }, outlookSyncStatus: 'Synced' }
+  });
+  const syncedReminders = await prisma.reminder.findMany({
+    where: { outlookEventId: { not: null }, outlookSyncStatus: 'Synced' }
+  });
+  const syncedEvents = await prisma.calendarEvent.findMany({
+    where: { outlookEventId: { not: null }, outlookSyncStatus: 'Synced' }
+  });
+
+  const verifyDeletedInGraph = async (eventId: string): Promise<boolean> => {
+    try {
+      const checkRes = await fetch(`https://graph.microsoft.com/v1.0/me/events/${encodeURIComponent(eventId)}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      return checkRes.status === 404;
+    } catch (e) {
+      return false;
+    }
+  };
+
+  for (const t of syncedTasks) {
+    if (!t.outlookEventId) continue;
+    let shouldDelete = removedIds.has(t.outlookEventId);
+    if (!shouldDelete && isInitialFullSync && !activeIds.has(t.outlookEventId)) {
+      shouldDelete = await verifyDeletedInGraph(t.outlookEventId);
+    }
+
+    if (shouldDelete) {
+      console.log(`[OutlookService] Event ${t.outlookEventId} removed in Outlook. Deleting local task ${t.id}...`);
+      await prisma.task.delete({ where: { id: t.id } }).catch(() => {});
+      deletedTasks++;
+    }
+  }
+
+  for (const r of syncedReminders) {
+    if (!r.outlookEventId) continue;
+    let shouldDelete = removedIds.has(r.outlookEventId);
+    if (!shouldDelete && isInitialFullSync && !activeIds.has(r.outlookEventId)) {
+      shouldDelete = await verifyDeletedInGraph(r.outlookEventId);
+    }
+
+    if (shouldDelete) {
+      console.log(`[OutlookService] Event ${r.outlookEventId} removed in Outlook. Deleting local reminder ${r.id}...`);
+      await prisma.reminder.delete({ where: { id: r.id } }).catch(() => {});
+      deletedReminders++;
+    }
+  }
+
+  for (const e of syncedEvents) {
+    if (!e.outlookEventId) continue;
+    let shouldDelete = removedIds.has(e.outlookEventId);
+    if (!shouldDelete && isInitialFullSync && !activeIds.has(e.outlookEventId)) {
+      shouldDelete = await verifyDeletedInGraph(e.outlookEventId);
+    }
+
+    if (shouldDelete) {
+      console.log(`[OutlookService] Event ${e.outlookEventId} removed in Outlook. Deleting local calendar event ${e.id}...`);
+      await prisma.calendarEvent.delete({ where: { id: e.id } }).catch(() => {});
+      deletedEvents++;
+    }
+  }
+
+  return {
+    success: true,
+    deletedTasks,
+    deletedReminders,
+    deletedEvents,
+    deltaLinkSaved: !!newDeltaLink
+  };
+}
+
 
 /**
  * Synchronize a single Task item to Outlook Calendar

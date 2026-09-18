@@ -8,7 +8,7 @@ import {
   CalendarEventItem
 } from '@/lib/calendarService';
 import { getGoogleConnectionStatus, getAuthenticatedCalendarClient, disconnectGoogleAccount } from '@/lib/googleAuth';
-import { fetchOutlookEvents } from '@/lib/outlookService';
+import { fetchOutlookEvents, reconcileOutlookDeletions } from '@/lib/outlookService';
 import { prisma } from '@/lib/db';
 import { validateExecutiveAuth, sanitizeErrorResponse } from '@/lib/auth';
 import { logger } from '@/lib/logger';
@@ -127,6 +127,10 @@ export async function GET(req: NextRequest) {
     }
 
     // Combine with local DB events
+    if (isOutlookConnected) {
+      await reconcileOutlookDeletions().catch((e) => console.warn('[CalendarAPI] Reconciliation warning:', e));
+    }
+
     const localDbEvents = await getCalendarEvents();
     const mergedEvents = [...localDbEvents, ...allExternalEvents];
 
@@ -196,7 +200,10 @@ export async function DELETE(req: NextRequest) {
     if (!id) {
       return NextResponse.json({ error: 'Event ID parameter is required' }, { status: 400 });
     }
-    await deleteCalendarEvent(id);
+    const result = await deleteCalendarEvent(id);
+    if (!result.success) {
+      return NextResponse.json({ success: false, error: result.error || 'Failed to delete calendar event' }, { status: 400 });
+    }
     return NextResponse.json({ success: true, id });
   } catch (err: any) {
     return sanitizeErrorResponse(err, 'Failed to delete calendar event');

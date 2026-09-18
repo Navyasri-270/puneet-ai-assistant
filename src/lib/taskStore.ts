@@ -180,21 +180,33 @@ export async function updateTask(id: string, updates: Partial<TaskItem>): Promis
   }
 }
 
-export async function deleteTask(id: string): Promise<boolean> {
-  memoryTasks = memoryTasks.filter(t => t.id !== id);
+export async function deleteTask(id: string): Promise<{ success: boolean; error?: string }> {
   try {
     const existing = await prisma.task.findUnique({ where: { id } });
-    if (existing?.outlookEventId) {
-      try {
-        await deleteOutlookEvent(existing.outlookEventId);
-      } catch (e) {
-        console.warn("Outlook event deletion error:", e);
+    if (!existing) {
+      memoryTasks = memoryTasks.filter(t => t.id !== id);
+      return { success: true };
+    }
+
+    if (existing.outlookEventId) {
+      const delRes = await deleteOutlookEvent(existing.outlookEventId);
+      if (!delRes.success) {
+        await prisma.task.update({
+          where: { id },
+          data: {
+            outlookSyncStatus: 'Failed',
+            outlookSyncError: delRes.error || 'Failed to delete Outlook event'
+          }
+        }).catch(() => {});
+        return { success: false, error: delRes.error || 'Failed to delete Outlook event' };
       }
     }
+
+    memoryTasks = memoryTasks.filter(t => t.id !== id);
     await prisma.task.delete({ where: { id } });
-    return true;
-  } catch (err) {
-    return true;
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Failed to delete task' };
   }
 }
 
@@ -801,21 +813,33 @@ export async function updateReminder(
   }
 }
 
-export async function deleteReminder(id: string) {
-  memoryReminders = memoryReminders.filter(r => r.id !== id);
+export async function deleteReminder(id: string): Promise<{ success: boolean; error?: string }> {
   try {
     const existing = await prisma.reminder.findUnique({ where: { id } });
-    if (existing?.outlookEventId) {
-      try {
-        await deleteOutlookEvent(existing.outlookEventId);
-      } catch (e) {
-        console.warn("Outlook reminder event deletion error:", e);
+    if (!existing) {
+      memoryReminders = memoryReminders.filter(r => r.id !== id);
+      return { success: true };
+    }
+
+    if (existing.outlookEventId) {
+      const delRes = await deleteOutlookEvent(existing.outlookEventId);
+      if (!delRes.success) {
+        await prisma.reminder.update({
+          where: { id },
+          data: {
+            outlookSyncStatus: 'Failed',
+            outlookSyncError: delRes.error || 'Failed to delete Outlook reminder event'
+          }
+        }).catch(() => {});
+        return { success: false, error: delRes.error || 'Failed to delete Outlook event' };
       }
     }
+
+    memoryReminders = memoryReminders.filter(r => r.id !== id);
     await prisma.reminder.delete({ where: { id } });
-    return true;
-  } catch (err) {
-    return true;
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Failed to delete reminder' };
   }
 }
 

@@ -378,21 +378,33 @@ export async function updateCalendarEvent(id: string, updates: Partial<{
 /**
  * Delete a Calendar Event
  */
-export async function deleteCalendarEvent(id: string): Promise<boolean> {
-  memoryCalendarEvents = memoryCalendarEvents.filter(e => e.id !== id);
+export async function deleteCalendarEvent(id: string): Promise<{ success: boolean; error?: string }> {
   try {
     const existing = await prisma.calendarEvent.findUnique({ where: { id } });
-    if (existing?.outlookEventId) {
-      try {
-        await deleteOutlookEvent(existing.outlookEventId);
-      } catch (e) {
-        console.warn("Outlook event deletion error:", e);
+    if (!existing) {
+      memoryCalendarEvents = memoryCalendarEvents.filter(e => e.id !== id);
+      return { success: true };
+    }
+
+    if (existing.outlookEventId) {
+      const delRes = await deleteOutlookEvent(existing.outlookEventId);
+      if (!delRes.success) {
+        await prisma.calendarEvent.update({
+          where: { id },
+          data: {
+            outlookSyncStatus: 'Failed',
+            outlookSyncError: delRes.error || 'Failed to delete Outlook calendar event'
+          }
+        }).catch(() => {});
+        return { success: false, error: delRes.error || 'Failed to delete Outlook event' };
       }
     }
+
+    memoryCalendarEvents = memoryCalendarEvents.filter(e => e.id !== id);
     await prisma.calendarEvent.delete({ where: { id } });
-    return true;
-  } catch (err) {
-    return true;
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Failed to delete calendar event' };
   }
 }
 

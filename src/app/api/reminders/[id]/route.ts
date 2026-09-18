@@ -25,8 +25,11 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   if (!auth.authorized && auth.response) return auth.response;
 
   try {
-    const deleted = await deleteReminder(params.id);
-    return NextResponse.json({ success: deleted });
+    const result = await deleteReminder(params.id);
+    if (!result.success) {
+      return NextResponse.json({ success: false, error: result.error || 'Failed to delete reminder' }, { status: 400 });
+    }
+    return NextResponse.json({ success: true });
   } catch (err: any) {
     return sanitizeErrorResponse(err, 'Failed to delete reminder');
   }

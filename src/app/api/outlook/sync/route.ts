@@ -3,11 +3,24 @@ import {
   syncTaskToOutlook, 
   syncReminderToOutlook, 
   syncCalendarEventToOutlook, 
-  bulkSyncAllToOutlook 
+  bulkSyncAllToOutlook,
+  reconcileOutlookDeletions
 } from '@/lib/outlookService';
 import { validateExecutiveAuth, sanitizeErrorResponse } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
+
+export async function GET(req: NextRequest) {
+  const auth = validateExecutiveAuth(req);
+  if (!auth.authorized && auth.response) return auth.response;
+
+  try {
+    const result = await reconcileOutlookDeletions();
+    return NextResponse.json(result);
+  } catch (err: any) {
+    return sanitizeErrorResponse(err, 'Failed to reconcile Outlook deletions');
+  }
+}
 
 export async function POST(req: NextRequest) {
   const auth = validateExecutiveAuth(req);
@@ -16,6 +29,12 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { action, type, id } = body;
+
+    // Handle reconciliation delta sync
+    if (action === 'reconcile' || action === 'sync') {
+      const result = await reconcileOutlookDeletions();
+      return NextResponse.json(result);
+    }
 
     // Handle bulk backfill migration
     if (action === 'bulk') {
