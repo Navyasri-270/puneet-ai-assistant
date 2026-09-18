@@ -9,10 +9,28 @@ export function getOutlookConfig() {
   const clientSecret = process.env.MICROSOFT_CLIENT_SECRET || '';
   const tenantId = process.env.MICROSOFT_TENANT_ID || 'common';
   
-  let redirectUri = process.env.MICROSOFT_REDIRECT_URI || '';
+  let redirectUri = (process.env.MICROSOFT_REDIRECT_URI || '').trim();
+  
   if (!redirectUri && process.env.NEXT_PUBLIC_APP_URL) {
-    redirectUri = `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/outlook/callback`;
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL.trim().replace(/\/$/, '');
+    redirectUri = `${baseUrl}/api/auth/outlook/callback`;
   }
+
+  if (!redirectUri && process.env.VERCEL_URL) {
+    const vercelHost = process.env.VERCEL_URL.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
+    redirectUri = `https://${vercelHost}/api/auth/outlook/callback`;
+  }
+
+  if (!redirectUri && process.env.NEXT_PUBLIC_VERCEL_URL) {
+    const vercelHost = process.env.NEXT_PUBLIC_VERCEL_URL.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
+    redirectUri = `https://${vercelHost}/api/auth/outlook/callback`;
+  }
+
+  if (!redirectUri && process.env.NODE_ENV === 'development') {
+    redirectUri = 'http://localhost:3000/api/auth/outlook/callback';
+  }
+
+  logger.info(`[OutlookAuth] Resolved redirect_uri: "${redirectUri}"`);
 
   return { clientId, clientSecret, tenantId, redirectUri, scopes: SCOPES };
 }
