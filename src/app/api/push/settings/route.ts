@@ -22,7 +22,7 @@ export async function GET() {
       quietHoursEnd: sub ? sub.quietHoursEnd : '07:00',
       timezone: sub ? sub.timezone : DEFAULT_TIMEZONE,
       hasSubscription: !!sub,
-      vapidPublicKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || '',
+      vapidPublicKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || process.env.VAPID_PUBLIC_KEY || '',
     });
   } catch (error: any) {
     return sanitizeErrorResponse(error, 'Failed to fetch push settings');

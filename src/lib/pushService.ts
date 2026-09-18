@@ -4,17 +4,25 @@ import { DEFAULT_TIMEZONE } from './dateUtils';
 
 const prisma = new PrismaClient();
 
-const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || '';
-const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || '';
-const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:puneet@puneetcapital.com';
+export function setupVapidDetails(): boolean {
+  const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || process.env.VAPID_PUBLIC_KEY || '';
+  const privateKey = process.env.VAPID_PRIVATE_KEY || '';
+  const subject = process.env.VAPID_SUBJECT || 'mailto:puneet@puneetcapital.com';
 
-if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
-  try {
-    webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
-  } catch (err) {
-    console.error('Failed to set VAPID details:', err);
+  if (publicKey && privateKey) {
+    try {
+      webpush.setVapidDetails(subject, publicKey, privateKey);
+      return true;
+    } catch (err) {
+      console.error('Failed to set VAPID details:', err);
+      return false;
+    }
   }
+  return false;
 }
+
+// Initialize VAPID details
+setupVapidDetails();
 
 export async function savePushSubscription(sub: {
   endpoint: string;
@@ -135,7 +143,8 @@ export async function processAllPushNotifications(force = false): Promise<{
   summarySentCount: number;
   message?: string;
 }> {
-  if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
+  const isVapidReady = setupVapidDetails();
+  if (!isVapidReady) {
     return {
       success: false,
       sentCount: 0,
@@ -549,5 +558,96 @@ export async function sendGroupedPendingTaskPushNotification(force = false) {
     sentCount: result.sentCount,
     pendingTaskCount: result.taskDueAlertsCount + result.summarySentCount,
     message: result.message,
+  };
+}
+
+/**
+ * Direct Test Web Push Notification helper
+ * Dispatches a test Web Push payload directly to all active subscriptions in database
+ * with diagnostic status logging and clear error reporting.
+ */
+export async function sendDirectTestPushNotification(): Promise<{
+  success: boolean;
+  sentCount: number;
+  message: string;
+  error?: string;
+}> {
+  const isVapidReady = setupVapidDetails();
+  const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || process.env.VAPID_PUBLIC_KEY || '';
+  const privateKey = process.env.VAPID_PRIVATE_KEY || '';
+
+  if (!publicKey || !privateKey || !isVapidReady) {
+    return {
+      success: false,
+      sentCount: 0,
+      message: 'VAPID keys not configured in environment',
+      error: 'VAPID environment variables (NEXT_PUBLIC_VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY) are missing or invalid in environment settings.',
+    };
+  }
+
+  const activeSubscriptions = await prisma.pushSubscription.findMany({
+    where: { enabled: true },
+  });
+
+  if (activeSubscriptions.length === 0) {
+    return {
+      success: false,
+      sentCount: 0,
+      message: 'No active device subscriptions found in database',
+      error: 'No active device push subscriptions found in database. Please click "Enable Notifications" on this device first to register it.',
+    };
+  }
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://puneet-ai-assistant.vercel.app';
+  const testPayload = JSON.stringify({
+    title: '🔔 Test Web Push Notification',
+    body: 'Puneet AI Executive Assistant Web Push notifications are active and working perfectly!',
+    url: `${appUrl}/settings`,
+    tag: 'puneet-ai-test-push',
+  });
+
+  let sentCount = 0;
+  const failureReasons: string[] = [];
+
+  for (const sub of activeSubscriptions) {
+    const pushConfig = {
+      endpoint: sub.endpoint,
+      keys: { p256dh: sub.p256dh, auth: sub.auth },
+    };
+
+    try {
+      await webpush.sendNotification(pushConfig, testPayload);
+      sentCount++;
+
+      await prisma.pushSubscription.update({
+        where: { id: sub.id },
+        data: { lastNotifiedAt: new Date() },
+      }).catch(() => {});
+    } catch (err: any) {
+      const statusCode = err.statusCode || err.status || 'network';
+      const errorMsg = err.message || err.body || String(err);
+      console.error(`Test push delivery error for subscription ${sub.id} (HTTP ${statusCode}):`, errorMsg);
+      failureReasons.push(`Device (${sub.id.slice(0, 8)}...) HTTP ${statusCode}: ${errorMsg}`);
+
+      if (err.statusCode === 404 || err.statusCode === 410) {
+        await prisma.pushSubscription.delete({ where: { id: sub.id } }).catch(() => {});
+        console.log(`Cleaned up expired subscription ${sub.id}`);
+      }
+    }
+  }
+
+  if (sentCount === 0) {
+    return {
+      success: false,
+      sentCount: 0,
+      message: 'Failed to deliver test notification',
+      error: `Failed to deliver test push to ${activeSubscriptions.length} registered device(s). Failure diagnostics: ${failureReasons.join('; ')}`,
+    };
+  }
+
+  return {
+    success: true,
+    sentCount,
+    message: `✓ Test Web Push notification delivered successfully to ${sentCount} registered device(s)!`,
   };
 }
