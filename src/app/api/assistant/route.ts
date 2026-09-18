@@ -357,6 +357,51 @@ export async function POST(req: NextRequest) {
         executionMessage = parsedAction.clarificationQuestion || "Could you specify which item you meant?";
         break;
 
+      case 'query_tasks':
+      case 'list_tasks':
+        const pendingTasks = currentTasks.filter(t => t.status !== 'Completed');
+        if (pendingTasks.length > 0) {
+          const listStr = pendingTasks.map(t => {
+            let itemStr = `• ${t.title}`;
+            if (t.dueDate) itemStr += ` (Due: ${t.dueDate}${t.dueTime ? ' at ' + t.dueTime : ''})`;
+            if (t.priority && t.priority !== 'Medium') itemStr += ` [${t.priority}]`;
+            return itemStr;
+          }).join('\n');
+          executionMessage = `Here are your pending tasks (${pendingTasks.length}):\n${listStr}`;
+        } else {
+          executionMessage = `You have no pending tasks.`;
+        }
+        extraData = { ...extraData, tasks: pendingTasks };
+        break;
+
+      case 'calendar_query':
+        const { getCalendarEvents: fetchCalEvents } = await import('@/lib/calendarService');
+        const calEvents = await fetchCalEvents();
+        if (calEvents.length > 0) {
+          const listStr = calEvents.slice(0, 5).map(e => `• ${e.title} — ${new Date(e.startTime).toLocaleDateString()} at ${new Date(e.startTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`).join('\n');
+          executionMessage = `Here are your upcoming calendar meetings:\n${listStr}`;
+        } else {
+          executionMessage = `You have no upcoming calendar meetings.`;
+        }
+        extraData = { ...extraData, events: calEvents };
+        break;
+
+      case 'email_query':
+        const { getEmailDrafts: fetchDrafts } = await import('@/lib/taskStore');
+        const drafts = await fetchDrafts();
+        if (drafts.length > 0) {
+          const listStr = drafts.map(d => `• To: ${d.recipient || 'No recipient'} — Subject: ${d.subject}`).join('\n');
+          executionMessage = `Here are your saved email drafts:\n${listStr}`;
+        } else {
+          executionMessage = `You have no saved email drafts.`;
+        }
+        extraData = { ...extraData, drafts };
+        break;
+
+      case 'conversation':
+        executionMessage = `Hello Puneet. I am your Executive AI Assistant. You can ask me to view your pending tasks, schedule meetings, set reminders, draft emails, or manage your schedule. How can I help you today?`;
+        break;
+
       case 'general':
       default:
         executionMessage = `I understand. How would you like me to assist you with your executive schedule, tasks, or emails?`;
