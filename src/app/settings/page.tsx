@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Settings as SettingsIcon, 
   Brain, 
@@ -74,6 +74,24 @@ export default function SettingsPage() {
     'Other'
   ];
 
+  const fetchMemories = useCallback(async () => {
+    setIsLoadingMemories(true);
+    try {
+      const url = selectedCategory === 'All' 
+        ? '/api/memories' 
+        : `/api/memories?category=${encodeURIComponent(selectedCategory)}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.success && data.memories) {
+        setMemories(data.memories);
+      }
+    } catch (err) {
+      console.error("Failed to fetch memories:", err);
+    } finally {
+      setIsLoadingMemories(false);
+    }
+  }, [selectedCategory]);
+
   useEffect(() => {
     fetchMemories();
     fetchGoogleStatus();
@@ -93,25 +111,7 @@ export default function SettingsPage() {
         setNotification('✓ Microsoft Outlook 365 connected successfully!');
       }
     }
-  }, [selectedCategory]);
-
-  const fetchMemories = async () => {
-    setIsLoadingMemories(true);
-    try {
-      const url = selectedCategory === 'All' 
-        ? '/api/memories' 
-        : `/api/memories?category=${encodeURIComponent(selectedCategory)}`;
-      const res = await fetch(url);
-      const data = await res.json();
-      if (data.success && data.memories) {
-        setMemories(data.memories);
-      }
-    } catch (err) {
-      console.error("Failed to fetch memories:", err);
-    } finally {
-      setIsLoadingMemories(false);
-    }
-  };
+  }, [fetchMemories]);
 
   const fetchGoogleStatus = async () => {
     try {

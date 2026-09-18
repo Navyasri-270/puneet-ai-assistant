@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '@/lib/db';
 import { updatePushSettings } from '@/lib/pushService';
-
-const prisma = new PrismaClient();
+import { validateExecutiveAuth, sanitizeErrorResponse } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const auth = validateExecutiveAuth(req);
+  if (!auth.authorized && auth.response) return auth.response;
+
   try {
     const sub = await prisma.pushSubscription.findFirst({
       orderBy: { updatedAt: 'desc' },
@@ -25,31 +27,20 @@ export async function GET() {
       vapidPublicKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || '',
     });
   } catch (error: any) {
-    return NextResponse.json(
-      {
-        enabled: true,
-        taskNotificationsEnabled: true,
-        reminderNotificationsEnabled: true,
-        frequencyHours: 3,
-        quietHoursEnabled: false,
-        quietHoursStart: '22:00',
-        quietHoursEnd: '07:00',
-        timezone: 'Asia/Kolkata',
-        error: error.message,
-        vapidPublicKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || '',
-      },
-      { status: 500 }
-    );
+    return sanitizeErrorResponse(error, 'Failed to fetch push settings');
   }
 }
 
 export async function POST(req: NextRequest) {
+  const auth = validateExecutiveAuth(req);
+  if (!auth.authorized && auth.response) return auth.response;
+
   try {
     const body = await req.json();
 
     await updatePushSettings(body);
     return NextResponse.json({ success: true, settings: body });
   } catch (error: any) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    return sanitizeErrorResponse(error, 'Failed to update push settings');
   }
 }

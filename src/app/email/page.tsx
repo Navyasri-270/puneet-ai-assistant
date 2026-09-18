@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useMounted, formatDate } from '@/lib/dateUtils';
 import { 
   Mail, 
@@ -56,11 +56,7 @@ export default function EmailPage() {
   // Edit draft form state
   const [editForm, setEditForm] = useState<Partial<EmailDraft>>({});
 
-  useEffect(() => {
-    fetchDrafts();
-  }, [statusFilter]);
-
-  const fetchDrafts = async () => {
+  const fetchDrafts = useCallback(async () => {
     setIsLoading(true);
     try {
       const url = statusFilter === 'All' 
@@ -80,7 +76,11 @@ export default function EmailPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [statusFilter, activeDraft]);
+
+  useEffect(() => {
+    fetchDrafts();
+  }, [fetchDrafts]);
 
   const handleSelectDraft = (draft: EmailDraft) => {
     setActiveDraft(draft);

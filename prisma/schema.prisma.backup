@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -30,35 +30,27 @@ model Task {
   createdAt           DateTime   @default(now())
   updatedAt           DateTime   @updatedAt
   reminders           Reminder[]
-
-  @@index([status])
-  @@index([dueDate, notificationEnabled])
-  @@index([outlookSyncStatus])
 }
 
 model Reminder {
-  id                  String   @id @default(uuid())
-  title               String   @default("Executive Reminder")
+  id                  String    @id @default(uuid())
+  title               String    @default("Executive Reminder")
   taskId              String?
   reminderTime        DateTime
-  channel             String   @default("In-App")
-  triggered           Boolean  @default(false)
-  notificationEnabled Boolean  @default(true)
-  notificationSent    Boolean  @default(false)
-  notificationBefore  Int      @default(15)
+  channel             String    @default("In-App")
+  triggered           Boolean   @default(false)
+  notificationEnabled Boolean   @default(true)
+  notificationSent    Boolean   @default(false)
+  notificationBefore  Int       @default(15)
   beforeNotifiedAt    DateTime?
   dueNotifiedAt       DateTime?
   overdueNotifiedAt   DateTime?
   lastNotifiedAt      DateTime?
   outlookEventId      String?
-  outlookSyncStatus   String?  @default("Pending")
+  outlookSyncStatus   String?   @default("Pending")
   outlookSyncError    String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @default(now()) @updatedAt
-  task                Task?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
-
-  @@index([taskId])
-  @@index([reminderTime, triggered, notificationEnabled])
+  createdAt           DateTime  @default(now())
+  task                Task?     @relation(fields: [taskId], references: [id], onDelete: Cascade)
 }
 
 model CalendarEvent {
@@ -74,9 +66,6 @@ model CalendarEvent {
   outlookSyncStatus String?  @default("Pending")
   outlookSyncError  String?
   createdAt         DateTime @default(now())
-  updatedAt         DateTime @default(now()) @updatedAt
-
-  @@index([startTime, endTime])
 }
 
 model EmailDraft {
@@ -89,8 +78,6 @@ model EmailDraft {
   updatedAt DateTime @updatedAt
   bcc       String?  @default("")
   cc        String?  @default("")
-
-  @@index([status])
 }
 
 model Memory {
@@ -108,8 +95,6 @@ model Conversation {
   content    String
   actionData String?
   timestamp  DateTime @default(now())
-
-  @@index([timestamp])
 }
 
 model GoogleConnection {

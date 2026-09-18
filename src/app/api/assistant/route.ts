@@ -1,17 +1,35 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getTasks, createTask, updateTask, deleteTask, createEmailDraft, createMemory, getMemories, deleteMemory, getRelevantMemories, createReminder, getReminders, deleteReminder } from '@/lib/taskStore';
 import { generateDailyBriefing } from '@/lib/briefingService';
 import { parseNaturalLanguageRequest, AIActionResponse } from '@/lib/aiActionParser';
+import { validateExecutiveAuth, sanitizeErrorResponse } from '@/lib/auth';
+import { checkRateLimit } from '@/lib/rateLimit';
 
 export const dynamic = 'force-dynamic';
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  // 1. Executive Auth Guard
+  const auth = validateExecutiveAuth(req);
+  if (!auth.authorized && auth.response) {
+    return auth.response;
+  }
+
+  // 2. Rate Limiting (30 requests per minute per IP / identifier)
+  const clientIp = req.headers.get('x-forwarded-for') || 'executive-client';
+  const rateLimit = checkRateLimit(`assistant:${clientIp}`, 30, 60000);
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { success: false, error: 'Rate limit exceeded. Please wait a minute before sending another message.' },
+      { status: 429 }
+    );
+  }
+
   try {
     const body = await req.json();
     const { prompt, selectedOptionId, pendingTask, selectedPriority } = body;
 
-    if (!prompt || typeof prompt !== 'string') {
-      return NextResponse.json({ error: 'Valid prompt is required' }, { status: 400 });
+    if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
+      return NextResponse.json({ error: 'Valid prompt string is required' }, { status: 400 });
     }
 
     const currentTasks = await getTasks();
@@ -44,7 +62,6 @@ export async function POST(req: Request) {
 
     // Handle clarification choice option if user selected a specific memory or task to remove/update
     if (selectedOptionId && !pendingTask) {
-      // Check if selectedOptionId is a reminder
       const allReminders = await getReminders('all');
       const targetReminder = allReminders.find(r => r.id === selectedOptionId);
       if (targetReminder) {
@@ -145,7 +162,6 @@ export async function POST(req: Request) {
         );
 
         if (matchingReminders.length === 0 && remQuery) {
-          // Fallback search
           const words = remQuery.split(' ').filter((w: string) => w.length > 2);
           matchingReminders = allActiveReminders.filter(r => 
             words.some((w: string) => r.title.toLowerCase().includes(w))
@@ -231,7 +247,6 @@ export async function POST(req: Request) {
         break;
 
       case 'clarify_priority':
-        // Do NOT save task yet! Return clarification prompt and pending task context
         executionMessage = parsedAction.clarificationQuestion || "What priority should I set for this task?";
         break;
 
@@ -271,11 +286,9 @@ export async function POST(req: Request) {
         break;
 
       case 'draft_email':
-        // Retrieve relevant memories for this email request
         const relevantEmailMemories = await getRelevantMemories(prompt);
         let finalBody = parsedAction.data.body || '';
 
-        // Check if a concise email preference memory applies
         const concisePref = relevantEmailMemories.find(m => 
           m.category.toLowerCase() === 'communication' || 
           m.value.toLowerCase().includes('concise') || 
@@ -326,12 +339,7 @@ export async function POST(req: Request) {
       isFallbackEngine: parsedAction.isFallbackEngine
     });
 
-
   } catch (err: any) {
-    console.error("API Assistant route error:", err);
-    return NextResponse.json({
-      error: 'An internal server error occurred processing your request',
-      details: err.message
-    }, { status: 500 });
+    return sanitizeErrorResponse(err, 'An error occurred processing your assistant request');
   }
 }

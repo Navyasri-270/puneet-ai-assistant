@@ -40,3 +40,9 @@ next-env.d.ts
 
 # scratch test scripts & temporary logs
 /scratch/
+prisma/production_migration_dump.json
+*.dump
+*.backup
+.env
+.env.local
+.env.*.local

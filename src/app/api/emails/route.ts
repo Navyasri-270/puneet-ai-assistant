@@ -1,9 +1,13 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getEmailDrafts, createEmailDraft } from '@/lib/taskStore';
+import { validateExecutiveAuth, sanitizeErrorResponse } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
+  const auth = validateExecutiveAuth(req);
+  if (!auth.authorized && auth.response) return auth.response;
+
   try {
     let drafts = await getEmailDrafts();
 
@@ -25,12 +29,14 @@ export async function GET(req: Request) {
 
     return NextResponse.json({ success: true, drafts });
   } catch (err: any) {
-    console.error("GET /api/emails error:", err);
-    return NextResponse.json({ error: 'Failed to fetch email drafts' }, { status: 500 });
+    return sanitizeErrorResponse(err, 'Failed to fetch email drafts');
   }
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  const auth = validateExecutiveAuth(req);
+  if (!auth.authorized && auth.response) return auth.response;
+
   try {
     const body = await req.json();
     const { recipient, cc, bcc, subject, body: emailBody, status } = body;
@@ -46,7 +52,6 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ success: true, draft }, { status: 201 });
   } catch (err: any) {
-    console.error("POST /api/emails error:", err);
-    return NextResponse.json({ error: 'Failed to create email draft' }, { status: 500 });
+    return sanitizeErrorResponse(err, 'Failed to create email draft');
   }
 }

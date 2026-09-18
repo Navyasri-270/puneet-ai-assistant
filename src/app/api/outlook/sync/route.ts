@@ -1,14 +1,18 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { 
   syncTaskToOutlook, 
   syncReminderToOutlook, 
   syncCalendarEventToOutlook, 
   bulkSyncAllToOutlook 
 } from '@/lib/outlookService';
+import { validateExecutiveAuth, sanitizeErrorResponse } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  const auth = validateExecutiveAuth(req);
+  if (!auth.authorized && auth.response) return auth.response;
+
   try {
     const body = await req.json();
     const { action, type, id } = body;
@@ -58,7 +62,6 @@ export async function POST(req: Request) {
       }, { status: 400 });
     }
   } catch (err: any) {
-    console.error("POST /api/outlook/sync error:", err);
-    return NextResponse.json({ error: err.message || 'Internal server error during Outlook sync' }, { status: 500 });
+    return sanitizeErrorResponse(err, 'Internal server error during Outlook sync');
   }
 }

@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { 
   getCalendarEvents, 
   getUnifiedSchedule, 
@@ -9,13 +9,16 @@ import {
 } from '@/lib/calendarService';
 import { getGoogleConnectionStatus, getAuthenticatedCalendarClient, disconnectGoogleAccount } from '@/lib/googleAuth';
 import { fetchOutlookEvents } from '@/lib/outlookService';
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import { prisma } from '@/lib/db';
+import { validateExecutiveAuth, sanitizeErrorResponse } from '@/lib/auth';
+import { logger } from '@/lib/logger';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
+  const auth = validateExecutiveAuth(req);
+  if (!auth.authorized && auth.response) return auth.response;
+
   try {
     const { searchParams } = new URL(req.url);
     const date = searchParams.get('date');
@@ -66,7 +69,7 @@ export async function GET(req: Request) {
           allExternalEvents.push(...gEvents);
         }
       } catch (gErr: any) {
-        console.warn("Google Calendar API fetch warning, falling back:", gErr?.message || gErr);
+        logger.warn("Google Calendar API fetch warning, falling back:", gErr?.message || gErr);
         const status = gErr?.status || gErr?.code || gErr?.response?.status;
         const msg = String(gErr?.message || '').toLowerCase();
         const isAuthOrScopeError = 
@@ -101,7 +104,7 @@ export async function GET(req: Request) {
         outlookDiagnostics = outlookRes.diagnostics || null;
         if (outlookRes.error) {
           outlookError = outlookRes.error;
-          console.warn("[CalendarRoute] Outlook calendar fetch warning:", outlookRes.error);
+          logger.warn("[CalendarRoute] Outlook calendar fetch warning:", outlookRes.error);
         }
         if (outlookRes.events && outlookRes.events.length > 0) {
           const mappedOutlook: CalendarEventItem[] = outlookRes.events.map(evt => ({
@@ -120,7 +123,7 @@ export async function GET(req: Request) {
         }
       }
     } catch (msErr: any) {
-      console.warn("Outlook Calendar fetch error:", msErr?.message || msErr);
+      logger.warn("Outlook Calendar fetch error:", msErr?.message || msErr);
     }
 
     // Combine with local DB events
@@ -146,11 +149,14 @@ export async function GET(req: Request) {
       outlookDiagnostics
     });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return sanitizeErrorResponse(err, 'Failed to fetch calendar schedule');
   }
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  const auth = validateExecutiveAuth(req);
+  if (!auth.authorized && auth.response) return auth.response;
+
   try {
     const data = await req.json();
     if (!data.title || !data.date || !data.startTime) {
@@ -159,11 +165,14 @@ export async function POST(req: Request) {
     const created = await createCalendarEvent(data);
     return NextResponse.json({ event: created });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return sanitizeErrorResponse(err, 'Failed to create calendar event');
   }
 }
 
-export async function PUT(req: Request) {
+export async function PUT(req: NextRequest) {
+  const auth = validateExecutiveAuth(req);
+  if (!auth.authorized && auth.response) return auth.response;
+
   try {
     const data = await req.json();
     const { id, ...updates } = data;
@@ -173,11 +182,14 @@ export async function PUT(req: Request) {
     const updated = await updateCalendarEvent(id, updates);
     return NextResponse.json({ event: updated });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return sanitizeErrorResponse(err, 'Failed to update calendar event');
   }
 }
 
-export async function DELETE(req: Request) {
+export async function DELETE(req: NextRequest) {
+  const auth = validateExecutiveAuth(req);
+  if (!auth.authorized && auth.response) return auth.response;
+
   try {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
@@ -187,6 +199,6 @@ export async function DELETE(req: Request) {
     await deleteCalendarEvent(id);
     return NextResponse.json({ success: true, id });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return sanitizeErrorResponse(err, 'Failed to delete calendar event');
   }
 }

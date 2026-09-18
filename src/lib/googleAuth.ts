@@ -1,5 +1,7 @@
 import { google } from 'googleapis';
 import { prisma } from './db';
+import { encryptToken, decryptToken } from './encryption';
+import { logger } from './logger';
 
 const SCOPES = [
   'https://www.googleapis.com/auth/calendar.readonly',
@@ -30,7 +32,7 @@ export function getAuthUrl(): string {
 }
 
 /**
- * Exchange Authorization Code for Tokens and store securely server-side
+ * Exchange Authorization Code for Tokens and store securely server-side with AES-256-GCM encryption
  */
 export async function handleOAuthCallback(code: string) {
   const oauth2Client = getOAuth2Client();
@@ -46,16 +48,20 @@ export async function handleOAuthCallback(code: string) {
       userEmail = userInfo.data.email;
     }
   } catch (err) {
-    console.warn("User email fetch warning:", err);
+    logger.warn("User email fetch warning:", err);
   }
 
-  // Store token information server-side in SQLite database
+  // Encrypt tokens before DB insertion
+  const encAccessToken = encryptToken(tokens.access_token || '') || '';
+  const encRefreshToken = tokens.refresh_token ? encryptToken(tokens.refresh_token) : undefined;
+
+  // Store token information server-side in database
   const connection = await prisma.googleConnection.upsert({
     where: { id: 'primary' },
     update: {
       email: userEmail || 'puneet@workspace.com',
-      accessToken: tokens.access_token || '',
-      refreshToken: tokens.refresh_token || undefined,
+      accessToken: encAccessToken,
+      refreshToken: encRefreshToken,
       tokenType: tokens.token_type || 'Bearer',
       expiryDate: tokens.expiry_date ? String(tokens.expiry_date) : undefined,
       scope: tokens.scope || SCOPES.join(' '),
@@ -64,8 +70,8 @@ export async function handleOAuthCallback(code: string) {
     create: {
       id: 'primary',
       email: userEmail || 'puneet@workspace.com',
-      accessToken: tokens.access_token || '',
-      refreshToken: tokens.refresh_token || undefined,
+      accessToken: encAccessToken,
+      refreshToken: encRefreshToken || undefined,
       tokenType: tokens.token_type || 'Bearer',
       expiryDate: tokens.expiry_date ? String(tokens.expiry_date) : undefined,
       scope: tokens.scope || SCOPES.join(' '),
@@ -100,7 +106,7 @@ export async function getGoogleConnectionStatus(): Promise<{
       };
     }
   } catch (err) {
-    console.warn("DB connection status fetch warning:", err);
+    logger.warn("DB connection status fetch warning:", err);
   }
 
   return {
@@ -130,13 +136,13 @@ export async function disconnectGoogleAccount(): Promise<boolean> {
     });
     return true;
   } catch (err) {
-    console.error("Disconnect error:", err);
+    logger.error("Disconnect error:", err);
     return false;
   }
 }
 
 /**
- * Get authenticated Google Calendar API Client
+ * Get authenticated Google Calendar API Client with token decryption
  */
 export async function getAuthenticatedCalendarClient() {
   const conn = await prisma.googleConnection.findUnique({
@@ -147,10 +153,13 @@ export async function getAuthenticatedCalendarClient() {
     throw new Error("Google Calendar is not connected");
   }
 
+  const decryptedAccessToken = decryptToken(conn.accessToken);
+  const decryptedRefreshToken = conn.refreshToken ? decryptToken(conn.refreshToken) : undefined;
+
   const oauth2Client = getOAuth2Client();
   oauth2Client.setCredentials({
-    access_token: conn.accessToken,
-    refresh_token: conn.refreshToken || undefined,
+    access_token: decryptedAccessToken || undefined,
+    refresh_token: decryptedRefreshToken || undefined,
     token_type: conn.tokenType || 'Bearer',
     expiry_date: conn.expiryDate ? Number(conn.expiryDate) : undefined
   });

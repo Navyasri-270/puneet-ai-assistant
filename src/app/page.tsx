@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { 
   Sparkles, 
@@ -50,7 +50,7 @@ export default function Dashboard() {
   const [briefingData, setBriefingData] = useState<any | null>(null);
   const [isRefreshingBriefing, setIsRefreshingBriefing] = useState(false);
 
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = useCallback(async () => {
     setLoading(true);
     const todayStrLocal = getLocalDateStr();
 
@@ -95,7 +95,7 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   const handleRefreshBriefing = async () => {
     setIsRefreshingBriefing(true);
@@ -116,7 +116,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchDashboardData();
-  }, []);
+  }, [fetchDashboardData]);
 
   const [dashboardPendingTask, setDashboardPendingTask] = useState<any | null>(null);
 

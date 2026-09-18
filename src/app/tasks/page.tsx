@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   CheckSquare, 
   Plus, 
@@ -89,7 +89,7 @@ export default function TasksPage() {
     taskId: ""
   });
 
-  const fetchTasks = async () => {
+  const fetchTasks = useCallback(async () => {
     try {
       setLoading(true);
       const res = await fetch('/api/tasks');
@@ -102,9 +102,9 @@ export default function TasksPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const fetchReminders = async () => {
+  const fetchReminders = useCallback(async () => {
     try {
       const res = await fetch(`/api/reminders?filter=${reminderFilter}`);
       const data = await res.json();
@@ -114,11 +114,11 @@ export default function TasksPage() {
     } catch (err) {
       console.error("Failed to load reminders:", err);
     }
-  };
+  }, [reminderFilter]);
 
   useEffect(() => {
     Promise.allSettled([fetchTasks(), fetchReminders()]);
-  }, [reminderFilter]);
+  }, [fetchTasks, fetchReminders]);
 
   const handleBulkSync = async () => {
     setSyncingBulk(true);
